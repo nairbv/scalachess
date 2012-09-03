@@ -1,0 +1,6 @@
+[0m[[0minfo[0m] [0m[32mChessSpec:[0m[0m
+[0m[[0minfo[0m] [0m[32mA new chess baord [0m[0m
+[0m[[0minfo[0m] [0m[32m- should have appropriate pieces[0m[0m
+[0m[[0minfo[0m] [0m[32m- should throw IllegalArgumentException if an illegal move is attempted[0m[0m
+[0m[[0minfo[0m] [0m[32m- should have 20 possible moves[0m[0m
+[0m[[0minfo[0m] [0m[32m- should find a king in the right place[0m[0m
