@@ -11,21 +11,21 @@ class ChessSpec extends FlatSpec with ShouldMatchers {
 
   }
 
-  it should "throw IllegalArgumentException if an illegal move is attempted" in 
+  it should "throw InvalidMoveException if an illegal move is attempted" in 
   {
     val board = BoardState.startingBoard
 
     evaluating { 
       board.movePiece(0,1,1,2) 
-    } should produce [IllegalArgumentException]
+    } should produce [InvalidMoveException]
   }
 
-  it should "throw Illegal Argument exception if an opponents piece is moved" in
+  it should "throw invalid move exception if an opponents piece is moved" in
   {
     val board = BoardState.startingBoard
     evaluating { 
       board.movePiece(0,6,0,5) 
-    } should produce [IllegalArgumentException]
+    } should produce [InvalidMoveException]
   }
   
   it should "have 20 possible moves" in
@@ -64,6 +64,13 @@ class ChessSpec extends FlatSpec with ShouldMatchers {
     board = board.movePiece(5,2,5,6)//checkmate!
     
     board.inCheckMate should equal(true)
+  }
+
+  "an empty board" should "be detected as a stalemate" in {
+    val board = BoardState.emptyBoard
+    board.inStaleMate should equal(true)
+    board.gameOver should equal(true)
+
   }
 
 

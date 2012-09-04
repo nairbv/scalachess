@@ -24,7 +24,7 @@ passant, or promotion, but it should be easy to add these
 6) I recommend implementing "check" and "check mate"
 ====================================================================
 
-To play, just open an sbt console and make API calls directly.  The 
+To play, just open an `sbt console` and make API calls directly.  The 
 coordinates are indexed such that "a1" is (0,0), and "h8" is (7,7).
 
 Example output from sbt is below.  The piece names begin with "w" or "b" to 
