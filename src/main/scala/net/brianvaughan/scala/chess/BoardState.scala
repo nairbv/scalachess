@@ -300,6 +300,7 @@ final class BoardState(val board:List[Option[Piece]], val turn:Color) {
    * check if we are in stalemate (there are no legal moves we can make)
    */
   lazy val inStaleMate = {
+    ! inCheck &&
     allPossibleResultingBoardStates.filter( b => ! b.opponentInCheck ).isEmpty
   }
 
