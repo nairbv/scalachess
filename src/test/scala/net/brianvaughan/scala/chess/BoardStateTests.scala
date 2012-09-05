@@ -49,7 +49,7 @@ class ChessSpec extends FlatSpec with ShouldMatchers {
     board = board.movePiece(1,4,2,6)//check!
     
     board.inCheck should equal(true)
-    board.inCheckMate should equal(false)
+    board.isWinner should equal(false)
 
   }
 
@@ -63,17 +63,15 @@ class ChessSpec extends FlatSpec with ShouldMatchers {
     board = board.movePiece(0,6,0,5)//a6
     board = board.movePiece(5,2,5,6)//checkmate!
     
-    board.inCheckMate should equal(true)
+    board.isWinner should equal(true)
   }
 
   "an empty board" should "be detected as a stalemate" in {
     val board = BoardState.emptyBoard
-    board.inStaleMate should equal(true)
+    board.isTie should equal(true)
     board.gameOver should equal(true)
 
   }
-
-
 }
 
 

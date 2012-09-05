@@ -1,11 +1,15 @@
 
 
 I wrote this chess program as part of an interview for a scala programming 
-position at Novus (www.novus.com).
+position at Novus (www.novus.com).  They asked me to share my answer with them
+via github.
 
 I only had about a day to do it, so it is far from perfect.  It doesn't 
 implement castling, en-passant, pawn promotion, there is no real UI, and there
 is no AI.
+
+(UPDATE: I later implemented a breadth-first mini-max search for a simple AI 
+player).
 
 My Requirements:
 ====================================================================

@@ -52,17 +52,17 @@ import Direction._
  * A chess "piece" has properties defining its behavior and 
  * the player (color) controlling that piece.
  */
-class Piece(name:String, val side:Color) {
+class Piece(name:String, val side:Color, val value:Int) {
   override def toString = side.toString + name
 }
 
 //the pieces
-case class Pawn(override val side:Color) extends Piece("Pa",side)
-case class Rook(override val side:Color) extends Piece("Ro",side)
-case class Knight(override val side:Color) extends Piece("Kn",side)
-case class Bishop(override val side:Color) extends Piece("Bi",side)
-case class Queen(override val side:Color) extends Piece("Qu",side)
-case class King(override val side:Color) extends Piece("Ki",side)
+case class Pawn(override val side:Color) extends Piece("Pa",side,1)
+case class Rook(override val side:Color) extends Piece("Ro",side,5)
+case class Knight(override val side:Color) extends Piece("Kn",side,3)
+case class Bishop(override val side:Color) extends Piece("Bi",side,3)
+case class Queen(override val side:Color) extends Piece("Qu",side,9)
+case class King(override val side:Color) extends Piece("Ki",side,100)
 
 
 
@@ -87,7 +87,12 @@ case class King(override val side:Color) extends Piece("Ki",side)
  *
  * @see http://en.wikipedia.org/wiki/Board_representation_(chess)#0x88_method
  */
-final class BoardState(val board:List[Option[Piece]], val turn:Color) {
+final class BoardState(val board:List[Option[Piece]], 
+                       val turn:Color,
+                       val movesIntoGame:Int=0,
+                       val movesSinceCapture:Int=0) 
+  extends MiniMaxGame[BoardState]
+{
 
   val zeroX88 = 136:Int // 0x88
   
@@ -95,15 +100,13 @@ final class BoardState(val board:List[Option[Piece]], val turn:Color) {
    * Find the king of the current player, useful for searching for check.
    * Package private to allow for testing.
    */
-  private[chess] def findKingIndex = {
-    lazy val king = board.indexWhere( x => x equals Some( King(turn) ) )
-    king
+  private[chess] lazy val findKingIndex = {
+    board.indexWhere( x => x equals Some( King(turn) ) )
   }
 
-  private[chess] def findOpponentKingIndex = {
-    lazy val king = board.indexWhere( 
+  private[chess] lazy val findOpponentKingIndex = {
+    board.indexWhere( 
               x => x equals Some( King(opponentColor)))
-    king
   }
 
 
@@ -116,9 +119,13 @@ final class BoardState(val board:List[Option[Piece]], val turn:Color) {
    */
   private def possibleMovesFromSquare(x:Int,y:Int):List[Int] = {
     val start = index(x,y)
-    pieceAt(start) match {
+    val piece = pieceAt(start)
+    piece match {
       case None=> Nil
       case Some(piece) => {
+        if( piece.side != turn ) {
+          Nil
+        } else 
         piece match {
           case Queen(t) if( t == turn)  => {
             (Direction.values.map{
@@ -138,22 +145,19 @@ final class BoardState(val board:List[Option[Piece]], val turn:Color) {
           }
           //todo: add en pasant move and promotion
           case Pawn(t) if( t == turn) => {
-            var allMoves = List():List[Int]
             t match {
               case White => {
-                allMoves :::= getStraightMoves(
-                      start,North,if(y==1){2} else {1})
-                allMoves :::= getStraightMoves(start,NorthEast,1)
-                allMoves :::= getStraightMoves(start,NorthWest,1)
+                getStraightMoves(start,North,if(y==1){2} else {1}) :::
+                getStraightMoves(start,NorthEast,1) :::
+                getStraightMoves(start,NorthWest,1)
               }
               case Black => {
-                allMoves :::= getStraightMoves(
-                      start,South,if(y==6){2}else{1})
-                allMoves :::= getStraightMoves(start,SouthEast,1)
-                allMoves :::= getStraightMoves(start,SouthWest,1)
+                getStraightMoves(
+                      start,South,if(y==6){2}else{1}) :::
+                getStraightMoves(start,SouthEast,1) :::
+                getStraightMoves(start,SouthWest,1)
               }
             }
-            allMoves
           }
           case Knight(t) if( t == turn) => {
             val relativeSquares = knightMove(North,East,start) :: 
@@ -245,7 +249,7 @@ final class BoardState(val board:List[Option[Piece]], val turn:Color) {
    * current player, but it also includes moves that are illegal because
    * of landing in check.  This will be filtered later.
    */
-  private[chess] lazy val allLegalMoves = {
+  private[chess] lazy val allLegalMoves:List[Tuple2[Int,Int]] = {
     ((board zipWithIndex).map  {
       case (None,i) => Nil
       case (Some(piece),i) => {
@@ -256,6 +260,8 @@ final class BoardState(val board:List[Option[Piece]], val turn:Color) {
       }
     }).flatten
   }
+
+  lazy val numberOfPossibleMoves = allLegalMoves.size
 
   /** 
    * Find out if the current player is in check (the player who's turn it is 
@@ -291,24 +297,53 @@ final class BoardState(val board:List[Option[Piece]], val turn:Color) {
    * To determine checkmate, see if we are in check, and if there are 
    * any possible moves that leave us not in check.
    */
+  override def isWinner = {
+    inCheckMate
+  }
+
   lazy val inCheckMate = {
     inCheck &&
-    allPossibleResultingBoardStates.filter( b => ! b.opponentInCheck ).isEmpty
+    allPossibleResultingGameStates.filter( b => ! b.opponentInCheck ).isEmpty
   }
+
 
   /** 
    * check if we are in stalemate (there are no legal moves we can make)
    */
+  override def isTie = inStaleMate
+  
   lazy val inStaleMate = {
-    ! inCheck &&
-    allPossibleResultingBoardStates.filter( b => ! b.opponentInCheck ).isEmpty
+    movesSinceCapture > 49 ||
+    ( ! inCheck &&
+    allPossibleResultingGameStates.filter( b => ! b.opponentInCheck ).isEmpty
+    )
   }
 
-  lazy val gameOver = {
-    inCheckMate || inStaleMate
+  /** 
+   * How "good" is this board state for the current player, for the sake
+   * of minimax searching.
+   * Todo: support defining custom evaluators.
+   */
+  override def evaluate:Double = lazyEvaluate
+  
+  private lazy val lazyEvaluate:Double = {
+    //checking for a winner on each move turns out to be too expensive
+    /*if( isWinner ) {
+      -999999999.0
+    } else if(isTie) {
+      0
+    } else {*/
+      board.foldLeft(0.0){
+        case (a,b)=>a + ( b match {
+          case None=>0.0
+          case Some(x)=> if(x.side==turn) { x.value } else { -x.value }
+        })
+      } + 
+      (allLegalMoves.size / 20.0)
+    //}
   }
-
-
+  
+  
   /**
    * Tests if the specified move is a legal move.
    * This is not a complete check for move legality, it only verifies that
@@ -336,7 +371,6 @@ final class BoardState(val board:List[Option[Piece]], val turn:Color) {
     }
   }
   
-
   /**
    * All of the possible board states that could result from any of the 
    * possible moves eligible to be made right now.
@@ -344,7 +378,11 @@ final class BoardState(val board:List[Option[Piece]], val turn:Color) {
    * includes board states tha are illegal (put the player in check), because
    * we are using the result of this method to check for those illegal moves.
    */
-  private lazy val allPossibleResultingBoardStates = {
+  override def allPossibleResultingGameStates:List[BoardState] = 
+        lazyAllPossibleResultingGameStates
+
+  //for some reason scala doesn't allow abstract lazy val's
+  private lazy val lazyAllPossibleResultingGameStates = {
     allLegalMoves.map {
       case (from,to) => movePiece(getX(from),getY(from),getX(to),getY(to),false)
     }
@@ -370,9 +408,16 @@ final class BoardState(val board:List[Option[Piece]], val turn:Color) {
     //todo: in pieceToMove, need to store that this piece has moved for 
     //looking up if it can still castle etc.
     val pieceToMove = pieceAt(x,y)
+    val pieceAtDestination = pieceAt(x2,y2)
     val newBoard = board.updated(index(x,y),None)
                    .updated(index(x2,y2),pieceToMove)
-    new BoardState(newBoard,opponentColor)
+    new BoardState(newBoard,
+                   opponentColor,
+                   movesIntoGame+1,
+                   pieceAtDestination match {
+                     case Some(p) => 0
+                     case None => movesSinceCapture+1
+                   })
   }
 
   /**
@@ -408,7 +453,7 @@ final class BoardState(val board:List[Option[Piece]], val turn:Color) {
    *
    */
   override def toString = {
-    var output = ""
+    var output = "move: " + movesIntoGame
     for( j <- 7 to 0 by -1;
          i <- 0 to 7) {
       if( i == 0 ) {
@@ -454,9 +499,16 @@ object BoardState {
 
   private lazy val pawns = List.fill(8)(Pawn)
   private lazy val midBoard = List.fill(16 * 4)(None)
-  /** This is the default starting board for a normal chess game. */
-  lazy val startingBoard = {
-    val boardList = 
+  /** 
+   * This is the default starting board for a normal chess game. 
+   * This is a def not a val because otherwise eventually the 
+   * cache'd allPossibleGameStates will be populated in a tree-like
+   * fashion until we run out of memory.  As a def, we're better 
+   * able to drop reference to the head of the game tree and allow
+   * garbage collection.
+   */
+  def startingBoard:BoardState = {
+    lazy val boardList = 
         (backRowWhite) ::: 
             empty8 ::: 
         List.fill(8)(Some(Pawn(White))) ::: empty8 :::
@@ -470,6 +522,16 @@ object BoardState {
   /** for testing */
   lazy val emptyBoard = {
     new BoardState(List.fill(16*8)(None), White )
+  }
+  
+  def watchAGame = {
+    var board = startingBoard
+    println(board)
+    while( ! board.gameOver ) {
+      board=board.bestMove()
+      println(board)
+    }
+    
   }
 }
 
