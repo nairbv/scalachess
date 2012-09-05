@@ -62,7 +62,7 @@ case class Rook(override val side:Color) extends Piece("Ro",side,5)
 case class Knight(override val side:Color) extends Piece("Kn",side,3)
 case class Bishop(override val side:Color) extends Piece("Bi",side,3)
 case class Queen(override val side:Color) extends Piece("Qu",side,9)
-case class King(override val side:Color) extends Piece("Ki",side,100)
+case class King(override val side:Color) extends Piece("Ki",side,100000)
 
 
 
@@ -248,17 +248,22 @@ final class BoardState(val board:List[Option[Piece]],
    * This method scans the board and tries to find all legal moves for the
    * current player, but it also includes moves that are illegal because
    * of landing in check.  This will be filtered later.
+   * The moves are represented as a tuple of (from_index,to_index)
    */
   private[chess] lazy val allLegalMoves:List[Tuple2[Int,Int]] = {
-    ((board zipWithIndex).map  {
-      case (None,i) => Nil
-      case (Some(piece),i) => {
-        possibleMovesFromSquare(getX(i),getY(i)).map{
-          //so that the result is a list of (from,to)
-          case index => (i,index)
+    ( (board.zipWithIndex.collect{case (Some(p),i)=> (p,i)}) map  {
+      case (piece,i) => {
+        //this is probably the most expensive operation, so making it
+        //multi-threaded.
+        scala.actors.Futures.future {
+          possibleMovesFromSquare(getX(i),getY(i)).map {
+            //so that the result is a list of (from,to)
+            case index => (i,index)
+          }
         }
       }
-    }).flatten
+    }).map { future => future.apply() }
+    .flatten
   }
 
   lazy val numberOfPossibleMoves = allLegalMoves.size
@@ -310,13 +315,29 @@ final class BoardState(val board:List[Option[Piece]],
   /** 
    * check if we are in stalemate (there are no legal moves we can make)
    */
-  override def isTie = inStaleMate
+  override def isTie = inStaleMate || fiftyMoveDraw
   
   lazy val inStaleMate = {
-    movesSinceCapture > 49 ||
-    ( ! inCheck &&
+    ! inCheck &&
     allPossibleResultingGameStates.filter( b => ! b.opponentInCheck ).isEmpty
-    )
+  }
+
+  lazy val fiftyMoveDraw = movesSinceCapture > 49
+
+
+  lazy val gameStateDescription = {
+    if( isWinner ) {
+      turn + " has won!"
+    } else if( inCheckMate ) {
+      opponentColor + " has won!"
+    } else if( inStaleMate ) {
+      "Stale Mate!"
+    } else if( fiftyMoveDraw ) {
+      "No capture for 50 moves, It's a draw!"
+    } else {
+      "Still playing"
+    }
+
   }
 
   /** 
@@ -333,16 +354,41 @@ final class BoardState(val board:List[Option[Piece]],
     } else if(isTie) {
       0
     } else {*/
+    if( fiftyMoveDraw ) {
+      0
+    } else {
       board.foldLeft(0.0){
         case (a,b)=>a + ( b match {
           case None=>0.0
           case Some(x)=> if(x.side==turn) { x.value } else { -x.value }
         })
-      } + 
-      (allLegalMoves.size / 20.0)
-    //}
+      } +
+      (.01 * allLegalMoves.foldLeft(0.0) {
+        case (sum, (from,to))=> {
+          sum + 
+          //constant factor to add per legal move.
+          .01 +
+          // if this possible move attacks a valuable piece, it's probably
+          // a more valuable move
+          (pieceAt(to) match {
+            case None=> .005
+                               // king has infinite value, don't want
+                               //to skew this evaluation just for a "check"
+            case Some(x) => .005 + (x.value.min(40)/100.0)
+          }) +
+          // positions that attack the center of the board are more valuable.
+          distanceFromEdge(to)/50.0
+        }
+      })
+    }
   }
   
+  private[chess] def distanceFromEdge(index:Int):Int = {
+    val x = getX(index)
+    val y = getY(index)
+    (x.min(7-x).max( y.min(7-y) ))
+  }
+
   
   /**
    * Tests if the specified move is a legal move.
@@ -528,10 +574,12 @@ object BoardState {
     var board = startingBoard
     println(board)
     while( ! board.gameOver ) {
-      board=board.bestMove()
+      board=board.bestMove(2)
       println(board)
     }
-    
+    println("Game Over")
+    println(board.gameStateDescription)
+    board
   }
 }
 

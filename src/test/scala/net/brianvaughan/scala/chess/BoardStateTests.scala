@@ -72,6 +72,17 @@ class ChessSpec extends FlatSpec with ShouldMatchers {
     board.gameOver should equal(true)
 
   }
+  
+  "indexes" should "be measured as the correct distance from edge" in {
+    val board = BoardState.emptyBoard
+    
+    board.distanceFromEdge(board.index(3,3)) should equal(3)
+    board.distanceFromEdge(board.index(0,0)) should equal(0)
+    board.distanceFromEdge(board.index(0,7)) should equal(0)
+    board.distanceFromEdge(board.index(6,6)) should equal(1)
+
+  }
+
 }
 
 
