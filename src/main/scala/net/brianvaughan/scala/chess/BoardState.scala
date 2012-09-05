@@ -223,7 +223,9 @@ final class BoardState(val board:List[Option[Piece]],
     //direction is still a legal move.
     .takeWhile(
       squares => {
-        val nextSquare = getRelativeSquare(start,squares,direction)  
+        val nextSquare = getRelativeSquare(start,squares,direction)
+        //if we've taken a piece already, break this loop.
+        takenPiece == false &&
         //check if this square is off the board
         ((nextSquare & zeroX88) == 0) && nextSquare > 0  &&
         //check for pieces blocking the way or to be captured.
@@ -231,7 +233,7 @@ final class BoardState(val board:List[Option[Piece]],
           case None if (!pawn || Direction.straight.contains(direction)) => 
                   true
           case Some(piece)
-              if (takenPiece==false && piece.side != turn && 
+              if (piece.side != turn && 
                 (!pawn || Direction.diagonal.contains(direction)) ) => 
                takenPiece=true; true
           case _ => false
