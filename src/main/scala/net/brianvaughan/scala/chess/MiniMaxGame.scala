@@ -60,21 +60,21 @@ object MiniMaxGamePlayer {
                       depth:Int=1,
                       alpha:Double= -9999999.0,
                       beta:Double=99999999.0)
-    :Tuple2[Double,ComputerPlayableGameState] =
+    :ScoredGame =
   {
     var localalpha = alpha
     var best = -9999999.0
     if( depth == 0 ) {
-      (game.evaluate,game)
+      ScoredGame(game.evaluate,game)
     } else {
       val states = (game allPossibleResultingGameStates )
       if( states.isEmpty ) {
         if( game.isLoser ) {
-          return (-99999999.0,game)
+          return ScoredGame(-99999999.0,game)
         } else if (game.isWinner ) {
-          return (9999999.0,game)
+          return ScoredGame(9999999.0,game)
         } else {
-          return (0.0,game)
+          return ScoredGame(0.0,game)
         }
       } else {
       //intialize lazy values in children
@@ -97,11 +97,9 @@ object MiniMaxGamePlayer {
       Futures.awaitAll(100,futures:_*)
 */
       states.sortWith((b1,b2)=>b1.evaluate >= b2.evaluate)
-      .foldLeft( (alpha, states.head ) ) {
+      .foldLeft( ScoredGame(alpha, states.head ) ) {
         ( bestTuple , g ) => {
-          val (bestScore,bestGame) = bestTuple
-          //val (tmpV,returnedGame) = 
-          //    firstMiniMaxEvaluate(g, depth-1,-beta,-localalpha)
+          val (bestScore,bestGame) = (bestTuple.score,bestTuple.game)
 
           val actResult =   (actor !! 
                   EvaluationParameters(g,depth-1,-beta,-localalpha))
@@ -109,14 +107,13 @@ object MiniMaxGamePlayer {
           while( ! actResult.isSet ) {
             if( actor.getState == Actor.State.Terminated ) {
               logger.debug("actor dead, stop waiting for evaluation of board")
-              return (-1234567, g)
+              return ScoredGame(-1234567, g)
             }
             Futures.awaitAll(100,actResult)
           }
           actResult() match {
-            //todo: fix type erasure issues (manifest?)
-            case t:Tuple2[Double,ComputerPlayableGameState] => 
-                val (tmpV,returnedGame)= (t._1,t._2)
+            case ScoredGame(scored,gameResult) => 
+                val (tmpV,returnedGame)= (scored,gameResult)
 
             val v = -tmpV
             val localBest = v max best
@@ -124,14 +121,18 @@ object MiniMaxGamePlayer {
             //is there a more idiomatic way to do this?
             if( localBest >= beta ) {
  //           println("pruning!")
-              return if ( v >= best ) { (v,g) } else { (best,bestGame) }
+              return if ( v >= best ) { 
+                ScoredGame(v,g) 
+              } else { 
+                ScoredGame(best,bestGame) 
+              }
             }
             best = localBest
             localalpha = localBest max localalpha
             if( v >= best ){
-              (v,g)
+              ScoredGame(v,g)
             } else {
-              (localBest,bestGame)
+              ScoredGame(localBest,bestGame)
             }
 
             case _=> throw new Exception("bah!")
@@ -139,6 +140,7 @@ object MiniMaxGamePlayer {
         }
       }
       }
+
     }
   }
   
@@ -174,9 +176,7 @@ object MiniMaxGamePlayer {
         Futures.awaitAll(100,actResult)
       }
       actResult() match {
-        //fix type erasure issues, probably with manifests
-        case t:Tuple2[Double,ComputerPlayableGameState]=> 
-              val (score,board)= (t._1,t._2)
+        case ScoredGame(score,board)=> 
               board
         case _=> throw new Exception("bah!")
       }
@@ -199,17 +199,19 @@ object MiniMaxGamePlayer {
     :ComputerPlayableGameState = 
   {
     val start = System.currentTimeMillis
+    var currentDepth = 0
     val result = if( game.gameOver ) {
       logger.info("game over!")
       game
     } else {
-      var theBestMove:ComputerPlayableGameState = bestMove(game,0)
+      var theBestMove:ComputerPlayableGameState = bestMove(game,currentDepth)
       
       Stream.from(1).foreach{
         case i => {
+          currentDepth = i
           val actor = new EvaluationActor
           val f = Futures.future {
-            bestMove(game,i,actor)
+            bestMove(game,currentDepth,actor)
           }
           while( ! f.isSet ) {
             if( System.currentTimeMillis - start > timeout ) {
@@ -221,16 +223,19 @@ object MiniMaxGamePlayer {
             Futures.awaitAll(100,f)
           }
           theBestMove = f()
-          if( System.currentTimeMillis - start > (timeout * .9 ) ) {
+          if( System.currentTimeMillis - start > (timeout * .85 ) ) {
             //close enough to the timeout, not worth starting a whole other
             //iteration
             actor ! "Exit"
+            logger.debug("depth at decision: " + currentDepth)
             return theBestMove
           }
         }
       }
       theBestMove
     }
+    logger.debug("depth at decision: " + currentDepth)
+    logger.debug("decision after: " + (System.currentTimeMillis - start) + "s")
     result
   }
 
@@ -243,6 +248,8 @@ object MiniMaxGamePlayer {
                                   depth:Int,
                                   alpha:Double,
                                   beta:Double)
+
+  case class ScoredGame(score:Double,game:ComputerPlayableGameState)
 
 
   /** 
@@ -279,6 +286,7 @@ object MiniMaxGamePlayer {
             System.exit(1)//kill quick to debug the error.
         }}
       }
+      //just want to be able to "see" this actor if it gets printed.
       override def toString = 
           "An evaluation actor."
   }
