@@ -239,7 +239,7 @@ object MiniMaxGamePlayer {
     result
   }
 
-  private logDecisionStats(depth:Int,start:Long) {
+  private def logDecisionStats(depth:Int,start:Long) {
     logger.info("depth at decision: " + depth)
     logger.info("decision after: " + (System.currentTimeMillis - start) + "s")
   }
