@@ -227,16 +227,21 @@ object MiniMaxGamePlayer {
             //close enough to the timeout, not worth starting a whole other
             //iteration
             actor ! "Exit"
-            logger.debug("depth at decision: " + currentDepth)
+
+            logDecisionStats(currentDepth,start)
             return theBestMove
           }
         }
       }
       theBestMove
     }
-    logger.info("depth at decision: " + currentDepth)
-    logger.info("decision after: " + (System.currentTimeMillis - start) + "s")
+    logDecisionStats(currentDepth,start)
     result
+  }
+
+  private logDecisionStats(depth:Int,start:Long) {
+    logger.info("depth at decision: " + depth)
+    logger.info("decision after: " + (System.currentTimeMillis - start) + "s")
   }
 
 
