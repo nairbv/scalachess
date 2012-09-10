@@ -440,16 +440,16 @@ final class BoardState(val board:List[Option[Piece]],
           // if this possible move attacks a valuable piece, it's probably
           // a more valuable move
           (pieceAt(to) match {
-            case None=> .005
+            case None=> .001
                                // king has infinite value, don't want
                                //to skew this evaluation just for a "check"
-            case Some(x) => .005 + (x.value.min(40)/100.0)
+            case Some(x) => .001 + (x.value.min(40)/100.0)
           }) +
           // positions that attack the center of the board are more valuable.
           // but become less valuable later in the game when there are
           // few pieces left and we need to push the opponent king into a 
           // corner to checkmate him.
-          distanceFromEdge(to) * ( opponentAllPiecesExKingValue / 100.0 )
+          distanceFromEdge(to) * ( opponentAllPiecesExKingValue / 1000.0 )
         }
       }) + (if( allPiecesExKingValue < 7 ) { 
         //if we're getting into the end game, the opponent should view

@@ -81,8 +81,8 @@ object MiniMaxGamePlayer {
       //in a multi-threaded way.
       //at one point this was helping performace, but right now is probably
       //unnecessary.
-/*      val futures = (states.map {
-        case state:ComputerPlayableGame => 
+      val futures = (states.map {
+        case state:ComputerPlayableGameState => 
           Futures.future {
             //if we still have depth, we'll need the resulting boardstates
             //but if this is the last iteration, the count of legal moves
@@ -95,11 +95,15 @@ object MiniMaxGamePlayer {
           }
       })
       Futures.awaitAll(100,futures:_*)
-*/
-      states.sortWith((b1,b2)=>b1.evaluate >= b2.evaluate)
-      .foldLeft( ScoredGame(alpha, states.head ) ) {
-        ( bestTuple , g ) => {
+
+      val sortedStates = states.sortWith((b1,b2)=>b1.evaluate >= b2.evaluate)
+      sortedStates.zipWithIndex.foldLeft( ScoredGame(alpha, states.head ) ) {
+        ( bestTuple,  gWithIndex ) => {
           val (bestScore,bestGame) = (bestTuple.score,bestTuple.game)
+          
+          //hm... he zip makes this a bit complicated, and is only used for
+          //debugging info...
+          val (g,index) = gWithIndex
 
           val actResult =   (actor !! 
                   EvaluationParameters(g,depth-1,-beta,-localalpha))
@@ -107,6 +111,9 @@ object MiniMaxGamePlayer {
           while( ! actResult.isSet ) {
             if( actor.getState == Actor.State.Terminated ) {
               logger.debug("actor dead, stop waiting for evaluation of board")
+              //using a recognizable number so I know it if I see it in the 
+              //logs.  this represents an incomplete un-used score that was
+              //bypassed for a score at a lower depth.
               return ScoredGame(-1234567, g)
             }
             Futures.awaitAll(100,actResult)
@@ -121,6 +128,10 @@ object MiniMaxGamePlayer {
             //is there a more idiomatic way to do this?
             if( localBest >= beta ) {
  //           println("pruning!")
+              
+              logger.debug("pruning after "+index + "/"+states.size+
+                           " moves analyzed at depth "+depth)
+
               return if ( v >= best ) { 
                 ScoredGame(v,g) 
               } else { 
@@ -140,7 +151,6 @@ object MiniMaxGamePlayer {
         }
       }
       }
-
     }
   }
   
@@ -177,6 +187,8 @@ object MiniMaxGamePlayer {
       }
       actResult() match {
         case ScoredGame(score,board)=> 
+              logger.info("found best move for depth: "+
+                          depth+" with score "+score)
               board
         case _=> throw new Exception("bah!")
       }
@@ -199,14 +211,14 @@ object MiniMaxGamePlayer {
     :ComputerPlayableGameState = 
   {
     val start = System.currentTimeMillis
-    var currentDepth = 0
+    var currentDepth = 1
     val result = if( game.gameOver ) {
       logger.info("game over!")
       game
     } else {
       var theBestMove:ComputerPlayableGameState = bestMove(game,currentDepth)
       
-      Stream.from(1).foreach{
+      Stream.from(2).foreach{
         case i => {
           currentDepth = i
           val actor = new EvaluationActor
@@ -216,6 +228,7 @@ object MiniMaxGamePlayer {
           while( ! f.isSet ) {
             if( System.currentTimeMillis - start > timeout ) {
               actor ! "Exit"
+              logDecisionStats(currentDepth,start)
               return theBestMove
             }
             //causes us to wait 100 ms for future to be set, then we can check
@@ -227,7 +240,6 @@ object MiniMaxGamePlayer {
             //close enough to the timeout, not worth starting a whole other
             //iteration
             actor ! "Exit"
-
             logDecisionStats(currentDepth,start)
             return theBestMove
           }
