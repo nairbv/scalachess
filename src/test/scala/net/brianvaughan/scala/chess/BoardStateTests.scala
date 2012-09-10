@@ -39,6 +39,11 @@ class ChessSpec extends FlatSpec with ShouldMatchers {
     val board = BoardState.startingBoard
     board.findKingIndex should equal( board.index(4,0) )
   }
+  it should "find the opponent king in the right place" in
+  {
+    val board = BoardState.startingBoard
+    board.findOpponentKingIndex should equal( board.index(4,7) )
+  }
 
   "a particular game of chess" should "detect check, but not check mate" in {
     var board = BoardState.startingBoard
@@ -63,7 +68,7 @@ class ChessSpec extends FlatSpec with ShouldMatchers {
     board = board.movePiece(0,6,0,5)//a6
     board = board.movePiece(5,2,5,6)//checkmate!
     
-    board.isWinner should equal(true)
+    board.isLoser should equal(true)
   }
 
   "an empty board" should "be detected as a stalemate" in {

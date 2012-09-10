@@ -1,5 +1,9 @@
 package net.brianvaughan.scala.chess
 
+
+import com.weiglewilczek.slf4s._
+
+
 /*
  * A representation of a chess game with validation of basic moves.
  *
@@ -62,7 +66,7 @@ case class Rook(override val side:Color) extends Piece("Ro",side,5)
 case class Knight(override val side:Color) extends Piece("Kn",side,3)
 case class Bishop(override val side:Color) extends Piece("Bi",side,3)
 case class Queen(override val side:Color) extends Piece("Qu",side,9)
-case class King(override val side:Color) extends Piece("Ki",side,100000)
+case class King(override val side:Color) extends Piece("Ki",side,1000000)
 
 
 
@@ -91,8 +95,9 @@ final class BoardState(val board:List[Option[Piece]],
                        val turn:Color,
                        val movesIntoGame:Int=0,
                        val movesSinceCapture:Int=0) 
-  extends MiniMaxGame[BoardState]
+  extends ComputerPlayableGameState
 {
+  val logger = Logger("BoardState")
 
   val zeroX88 = 136:Int // 0x88
   
@@ -108,7 +113,11 @@ final class BoardState(val board:List[Option[Piece]],
     board.indexWhere( 
               x => x equals Some( King(opponentColor)))
   }
-
+  
+  class Purpose
+  case object Evaluation extends Purpose
+  case object Legality extends Purpose
+  case object Check extends Purpose
 
   /**
    * All possible destination indexes from a piece (if it exists) positioned
@@ -117,7 +126,9 @@ final class BoardState(val board:List[Option[Piece]],
    * for obstacles or potential captures.  It does not perform logic
    * for filtering moves that are illegal because of check.
    */
-  private def possibleMovesFromSquare(x:Int,y:Int):List[Int] = {
+  private def possibleMovesFromSquare(x:Int,y:Int, purpose:Purpose=Legality)
+      :List[Int] = {
+
     val start = index(x,y)
     val piece = pieceAt(start)
     piece match {
@@ -129,33 +140,37 @@ final class BoardState(val board:List[Option[Piece]],
         piece match {
           case Queen(t) if( t == turn)  => {
             (Direction.values.map{
-              case d => getStraightMoves(start,d)
+              case d => getStraightMoves(start,d,purpose)
             }).toList
             .flatten
           }
           case Bishop(t) if( t == turn) => {
             (Direction.diagonal.map{
-              case d => getStraightMoves(start,d)
+              case d => getStraightMoves(start,d,purpose)
             }).flatten
           }
           case Rook(t) if( t == turn) => {
             (Direction.straight.map{
-              case d => getStraightMoves(start,d)
+              case d => getStraightMoves(start,d,purpose)
             }).flatten
           }
           //todo: add en pasant move and promotion
           case Pawn(t) if( t == turn) => {
             t match {
               case White => {
-                getStraightMoves(start,North,if(y==1){2} else {1}) :::
-                getStraightMoves(start,NorthEast,1) :::
-                getStraightMoves(start,NorthWest,1)
+                //for pawn evaluation, don't count moves that can't
+                //kill forward
+                getStraightMoves(start,North,purpose,if(y==1){2} else {1}) :::
+                //but for diagonal moves, if they can kill a friendly piece,
+                //it's still one more attacking move and useful for evaluation.
+                getStraightMoves(start,NorthEast,purpose,1) :::
+                getStraightMoves(start,NorthWest,purpose,1)
               }
               case Black => {
                 getStraightMoves(
-                      start,South,if(y==6){2}else{1}) :::
-                getStraightMoves(start,SouthEast,1) :::
-                getStraightMoves(start,SouthWest,1)
+                      start,South,purpose,if(y==6){2}else{1}) :::
+                getStraightMoves(start,SouthEast,purpose,1) :::
+                getStraightMoves(start,SouthWest,purpose,1)
               }
             }
           }
@@ -172,9 +187,11 @@ final class BoardState(val board:List[Option[Piece]],
             relativeSquares.filter{
               case square => {
                 ( (square & zeroX88) == 0) &&
-                (pieceAt(square) match {
+                ( pieceAt(square) match {
                   case None => true
-                  case Some(x) => x.side != turn
+                  case Some(x) => 
+                    (!purpose.equals(Legality)) || 
+                    x.side != turn
                 })
               }
             }
@@ -182,7 +199,7 @@ final class BoardState(val board:List[Option[Piece]],
           //todo: add castling move.
           case King(t) if( t == turn) => {
             (Direction.values.map{
-              case d => getStraightMoves(start,d,1)
+              case d => getStraightMoves(start,d,purpose,1)
             }).toList.flatten
           }
           case piece:Piece if (piece.side != turn)=> Nil
@@ -206,6 +223,7 @@ final class BoardState(val board:List[Option[Piece]],
    */
   private def getStraightMoves(start:Int,
                                direction:Direction,
+                               purpose:Purpose=Legality,
                                max:Int=7) = 
   {
     //if we're starting from a pawn, there are special rules about
@@ -230,12 +248,38 @@ final class BoardState(val board:List[Option[Piece]],
         ((nextSquare & zeroX88) == 0) && nextSquare > 0  &&
         //check for pieces blocking the way or to be captured.
         (pieceAt(nextSquare) match{
-          case None if (!pawn || Direction.straight.contains(direction)) => 
-                  true
-          case Some(piece)
-              if (piece.side != turn && 
-                (!pawn || Direction.diagonal.contains(direction)) ) => 
-               takenPiece=true; true
+          case None if ( ! pawn ) => true
+          case None if ( Direction.straight.contains(direction) )=>
+            if( ! Check.equals(purpose) ) {
+              true
+            } else {
+              false
+            }
+          case None if ( Direction.diagonal.contains(direction) )=>
+            if( !Legality.equals(purpose) ) {
+              true
+            } else {
+              false 
+            }
+          case Some(piece) if( ! pawn ) =>
+            purpose match {
+              case Check => takenPiece = true; true;
+              case Legality | Evaluation=>
+                    if( piece.side != turn ) {
+                      takenPiece=true;true;
+                    } else {
+                      false
+                    }
+              case _ => false
+            }
+          case Some(piece) if( pawn ) =>
+            if( Direction.straight.contains(direction) ) {
+              false
+            } else if( piece.side != turn || ! Legality.equals(purpose) ) {
+              true
+            } else {
+              false
+            }
           case _ => false
          })
        }
@@ -246,6 +290,10 @@ final class BoardState(val board:List[Option[Piece]],
     }
   }
 
+  private[chess] lazy val allLegalMovesEvaluation:List[Tuple2[Int,Int]]={
+    getLegalMoves(Evaluation)
+  }
+
   /**
    * This method scans the board and tries to find all legal moves for the
    * current player, but it also includes moves that are illegal because
@@ -253,18 +301,26 @@ final class BoardState(val board:List[Option[Piece]],
    * The moves are represented as a tuple of (from_index,to_index)
    */
   private[chess] lazy val allLegalMoves:List[Tuple2[Int,Int]] = {
+    getLegalMoves(Legality)
+  }
+
+  private[chess] lazy val allLegalMovesCheck:List[Tuple2[Int,Int]]= {
+    getLegalMoves(Check)
+  }
+
+  private def getLegalMoves(purpose:Purpose=Legality):List[Tuple2[Int,Int]]={
     ( (board.zipWithIndex.collect{case (Some(p),i)=> (p,i)}) map  {
       case (piece,i) => {
         //this is probably the most expensive operation, so making it
         //multi-threaded.
-        scala.actors.Futures.future {
-          possibleMovesFromSquare(getX(i),getY(i)).map {
+//        scala.actors.Futures.future {
+          possibleMovesFromSquare(getX(i),getY(i),purpose).map {
             //so that the result is a list of (from,to)
             case index => (i,index)
           }
-        }
+//        }
       }
-    }).map { future => future.apply() }
+    })//.map { future => future.apply() }
     .flatten
   }
 
@@ -279,7 +335,7 @@ final class BoardState(val board:List[Option[Piece]],
    */
   lazy val inCheck = {
     ((new BoardState(board,opponentColor))
-    .allLegalMoves map {
+    .allLegalMovesCheck map {
       case (from,to) => to 
     })
     .contains(findKingIndex)
@@ -295,7 +351,7 @@ final class BoardState(val board:List[Option[Piece]],
    * a move.
    */
   private lazy val opponentInCheck = {
-    (allLegalMoves map {
+    (allLegalMovesCheck map {
       case (from,to) => to
     }).contains(findOpponentKingIndex)
   }
@@ -305,12 +361,16 @@ final class BoardState(val board:List[Option[Piece]],
    * any possible moves that leave us not in check.
    */
   override def isWinner = {
+    false//currently has to be losers turn to check if they lost
+  }
+
+  override def isLoser = {
     inCheckMate
   }
 
   lazy val inCheckMate = {
     inCheck &&
-    allPossibleResultingGameStates.filter( b => ! b.opponentInCheck ).isEmpty
+    lazyAllPossibleResultingGameStates.filter( b => ! b.opponentInCheck ).isEmpty
   }
 
 
@@ -320,17 +380,25 @@ final class BoardState(val board:List[Option[Piece]],
   override def isTie = inStaleMate || fiftyMoveDraw
   
   lazy val inStaleMate = {
-    ! inCheck &&
-    allPossibleResultingGameStates.filter( b => ! b.opponentInCheck ).isEmpty
+    
+    (allLegalMoves.size == 0 && ! inCheck ) || 
+    (
+      //not worth checking unless we've got few possible moves.
+      //if we've got more than 12 moves and aren't in check, at least
+      //one of those 12 moves likely doesn't land us in check.
+      (allLegalMoves.size < 12) &&
+      ! inCheck &&
+      lazyAllPossibleResultingGameStates.filter( b => ! b.opponentInCheck ).isEmpty
+    )
   }
 
   lazy val fiftyMoveDraw = movesSinceCapture > 49
 
 
-  lazy val gameStateDescription = {
+  override def gameStateDescription = {
     if( isWinner ) {
       turn + " has won!"
-    } else if( inCheckMate ) {
+    } else if( isLoser ) {
       opponentColor + " has won!"
     } else if( inStaleMate ) {
       "Stale Mate!"
@@ -339,7 +407,6 @@ final class BoardState(val board:List[Option[Piece]],
     } else {
       "Still playing"
     }
-
   }
 
   /** 
@@ -365,7 +432,7 @@ final class BoardState(val board:List[Option[Piece]],
           case Some(x)=> if(x.side==turn) { x.value } else { -x.value }
         })
       } +
-      (.01 * allLegalMoves.foldLeft(0.0) {
+      (.01 * allLegalMovesEvaluation.foldLeft(0.0) {
         case (sum, (from,to))=> {
           sum + 
           //constant factor to add per legal move.
@@ -379,8 +446,19 @@ final class BoardState(val board:List[Option[Piece]],
             case Some(x) => .005 + (x.value.min(40)/100.0)
           }) +
           // positions that attack the center of the board are more valuable.
-          distanceFromEdge(to)/50.0
+          // but become less valuable later in the game when there are
+          // few pieces left and we need to push the opponent king into a 
+          // corner to checkmate him.
+          distanceFromEdge(to) * ( opponentAllPiecesExKingValue / 100.0 )
         }
+      }) + (if( allPiecesExKingValue < 7 ) { 
+        //if we're getting into the end game, the opponent should view
+        //a good move for us as being one that allows us more space to move
+        //and avoid checkmate.
+        possibleMovesFromSquare(getX(findKingIndex),
+                                getY(findKingIndex)).size / 20.0
+      } else {
+        0
       })
     }
   }
@@ -391,7 +469,10 @@ final class BoardState(val board:List[Option[Piece]],
     (x.min(7-x).max( y.min(7-y) ))
   }
 
-  
+  def preFetchShallow = allLegalMovesEvaluation
+  def preFetchDeep = allPossibleResultingGameStates
+
+
   /**
    * Tests if the specified move is a legal move.
    * This is not a complete check for move legality, it only verifies that
@@ -423,15 +504,19 @@ final class BoardState(val board:List[Option[Piece]],
    * All of the possible board states that could result from any of the 
    * possible moves eligible to be made right now.
    *
-   * includes board states tha are illegal (put the player in check), because
+   * includes board states that are illegal (put the player in check), because
    * we are using the result of this method to check for those illegal moves.
    */
-  override def allPossibleResultingGameStates:List[BoardState] = 
+  override def allPossibleResultingGameStates:List[ComputerPlayableGameState] = 
         lazyAllPossibleResultingGameStates
 
   //for some reason scala doesn't allow abstract lazy val's
-  private lazy val lazyAllPossibleResultingGameStates = {
-    allLegalMoves.map {
+  private lazy val lazyAllPossibleResultingGameStates:List[BoardState] = {
+    (allLegalMoves.filter{
+      (move)=>isLegalMove(getX(move._1),getY(move._1),
+                          getX(move._2),getY(move._2),true)
+    }) 
+    .map {
       case (from,to) => movePiece(getX(from),getY(from),getX(to),getY(to),false)
     }
   }
@@ -496,12 +581,33 @@ final class BoardState(val board:List[Option[Piece]],
   def getY(index:Int) = index / 16
   def coordinates(index:Int) = (getX(index),getY(index))
 
+  def allPieces = {
+    board.collect{ case Some(square) => square }.filter{
+      case piece => piece.side == turn
+    }
+  }
+  def allPiecesExKingValue = {
+    allPieces.foldLeft(0){_ + _.value } - 1000000
+  }
+
+  def opponentAllPiecesExKingValue = {
+    board.collect { case Some(square) => square }.filter{
+      case piece=>piece.side != turn 
+    }.foldLeft(0) { _ + _.value } - 1000000
+  }
+  
+
   /**
    * Print out an ascii representation of the current chess board.
    *
    */
   override def toString = {
+    
     var output = "move: " + movesIntoGame
+    output += "\nPlayer: " + turn + 
+    "\nScore: " + evaluate +
+    //don't include king
+    "\nPiece Value: " + allPiecesExKingValue
     for( j <- 7 to 0 by -1;
          i <- 0 to 7) {
       if( i == 0 ) {
@@ -512,6 +618,14 @@ final class BoardState(val board:List[Option[Piece]],
         case None=> "   |"
       })
     }
+
+  
+    //for testing checkmate:    
+//    if( allPieces.collect{ case King(x) if( x == turn)=> true }.isEmpty ) {
+//      print(output) 
+//      System.exit(1)
+//    }
+    
     output
   }
 }
@@ -543,9 +657,6 @@ object BoardState {
                 Rook(Black) :: Nil)
                 .map{ case x:Piece => Some(x) }:List[Option[Piece]]
 
-
-
-  private lazy val pawns = List.fill(8)(Pawn)
   private lazy val midBoard = List.fill(16 * 4)(None)
   /** 
    * This is the default starting board for a normal chess game. 
@@ -572,17 +683,33 @@ object BoardState {
     new BoardState(List.fill(16*8)(None), White )
   }
   
-  def watchAGame = {
-    var board = startingBoard
+
+  def watchAGame(depth:Int=2) = {
+    var board:ComputerPlayableGameState = startingBoard
+    //using print instead of logger for normal game output
     println(board)
     while( ! board.gameOver ) {
-      board=board.bestMove(2)
+      board=MiniMaxGamePlayer.bestMove(board,depth)
+          //board.bestMove(depth)
       println(board)
     }
     println("Game Over")
     println(board.gameStateDescription)
     board
   }
+  
+  def watchAnIterativeDeepeningGame(millis:Long) = {
+    var board:ComputerPlayableGameState = startingBoard
+    println(board)
+    while( ! board.gameOver ) {
+      board = MiniMaxGamePlayer.bestMoveIterativeDeepening(board,millis)
+      println(board)
+    }
+    println("Game Over")
+    println(board.gameStateDescription)
+    board
+  }
+  
 }
 
 
