@@ -234,8 +234,8 @@ object MiniMaxGamePlayer {
       }
       theBestMove
     }
-    logger.debug("depth at decision: " + currentDepth)
-    logger.debug("decision after: " + (System.currentTimeMillis - start) + "s")
+    logger.info("depth at decision: " + currentDepth)
+    logger.info("decision after: " + (System.currentTimeMillis - start) + "s")
     result
   }
 
