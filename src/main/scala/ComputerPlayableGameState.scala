@@ -30,6 +30,8 @@ trait GameState {
  */
 trait ComputerPlayableGameState extends GameState { self =>
 
+  val movesIntoGame:Int
+
   /** 
    * All of the possible game-states that could result from making any 
    * available moves.

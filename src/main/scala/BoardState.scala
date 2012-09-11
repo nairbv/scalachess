@@ -93,7 +93,7 @@ case class King(override val side:Color) extends Piece("Ki",side,1000000)
  */
 final class BoardState(val board:Seq[Option[Piece]], 
                        val turn:Color,
-                       val movesIntoGame:Int=0,
+                       override val movesIntoGame:Int=0,
                        val movesSinceCapture:Int=0) 
   extends ComputerPlayableGameState
 {

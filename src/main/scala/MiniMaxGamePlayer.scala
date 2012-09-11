@@ -15,6 +15,35 @@ import com.weiglewilczek.slf4s._
 class MiniMaxGamePlayer {
   val logger = Logger("MiniMaxGamePlayer")
 
+  //the transposition table will be used for board states we've seen before.
+  //these board states are '.equal()' to each other, but the previously 
+  //seen board state will already have its lazily intialized dependent 
+  //values set.  Some of the lazily initialized vals require some board
+  //analysis, so repeated positions should be cheaper to analyze this way.
+  private var transpositionTable = 
+        Map[ComputerPlayableGameState,ComputerPlayableGameState]()
+
+  private def getOrAddTransposition(element:ComputerPlayableGameState)
+    :ComputerPlayableGameState =
+  {
+    //if( transpositionTable.contains( element ) ) {
+      //we have a hit on the transposition table!
+      //wow, surprised how much this printed out :-P
+    //  logger.debug("transposition hit!")
+    //}
+    transpositionTable = transpositionTable.updated(
+                element,transpositionTable.getOrElse(element,element))
+    transpositionTable.get(element).get
+  }
+
+  //clear out 'old' board states on a 'move' that is older than the current
+  //move being made in the game.
+  private def clearTransposition(lastMove:Int) = {
+    transpositionTable = transpositionTable.filterKeys{
+      k => k.movesIntoGame >= lastMove
+    }
+  }
+
   /** 
    * Use a miniMax (technically "Negamax") algorithm to evaluate 
    * the given board state, retreiving the determined score of the optimal 
@@ -68,7 +97,9 @@ class MiniMaxGamePlayer {
       Futures.awaitAll(100,futures:_*)
 */
 
-      val sortedStates = states.sortWith{
+      val sortedStates = states.map {
+        case a => getOrAddTransposition(a)
+      }.sortWith{
         (b1,b2)=>
             if( previousDepthBest.equals(Some(b1)) ) {
               true 
@@ -78,6 +109,7 @@ class MiniMaxGamePlayer {
               b1.evaluate >= b2.evaluate
             }
       }
+
       sortedStates.zipWithIndex.foldLeft( ScoredGame(alpha, states.head ) ) {
         ( bestTuple,  gWithIndex ) => {
           val (bestScore,bestGame) = (bestTuple.score,bestTuple.game)
@@ -137,7 +169,11 @@ class MiniMaxGamePlayer {
     }
   }
   
-
+  def bestMove(game:ComputerPlayableGameState,
+               depth:Int=1):ComputerPlayableGameState = {
+    clearTransposition(game.movesIntoGame)
+    bestMove(game,depth,new EvaluationActor(this),None)
+  }
 
   /**
    * Find the best move (as represented by the resulting ComputerPlayableGame) 
@@ -147,10 +183,10 @@ class MiniMaxGamePlayer {
    * Since this calls minimax, depth is actually depth+1.
    * Depth &gt; 2 can cause OutOfMemoryErrors.
    */
-  def bestMove(game:ComputerPlayableGameState, 
-               depth:Int=1, 
-               actor:EvaluationActor=new EvaluationActor(this),
-               previousBest:Option[ComputerPlayableGameState]=None)
+  private def bestMove(game:ComputerPlayableGameState, 
+                       depth:Int, 
+                       actor:EvaluationActor,
+                       previousBest:Option[ComputerPlayableGameState])
     : ComputerPlayableGameState = 
   {
 
@@ -200,8 +236,9 @@ class MiniMaxGamePlayer {
       logger.info("game over!")
       game
     } else {
+
       var theBestMove:ComputerPlayableGameState = bestMove(game,currentDepth)
-      
+
       Stream.from(2).foreach{
         case i => {
           currentDepth = i
