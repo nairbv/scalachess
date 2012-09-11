@@ -657,6 +657,17 @@ final class BoardState(val board:Seq[Option[Piece]],
       case _ => false
     }
   }
+
+  override def hashCode:Int = {
+    41 * (
+      41 * (
+        41 * (
+          41 + board.hashCode
+        ) + turn.hashCode
+      ) + movesIntoGame.hashCode
+    ) + movesSinceCapture.hashCode
+  }
+
 }
 
 /**
@@ -718,9 +729,10 @@ object BoardState {
   def watchAGame(depth:Int=2) = {
     var board:ComputerPlayableGameState = startingBoard
     //using print instead of logger for normal game output
+    val player = new MiniMaxGamePlayer
     println(board)
     while( ! board.gameOver ) {
-      board=MiniMaxGamePlayer.bestMove(board,depth)
+      board= player.bestMove(board,depth)
           //board.bestMove(depth)
       println(board)
     }
@@ -732,15 +744,15 @@ object BoardState {
   def watchAnIterativeDeepeningGame(millis:Long) = {
     var board:ComputerPlayableGameState = startingBoard
     println(board)
+    val player = new MiniMaxGamePlayer
     while( ! board.gameOver ) {
-      board = MiniMaxGamePlayer.bestMoveIterativeDeepening(board,millis)
+      board = player.bestMoveIterativeDeepening(board,millis)
       println(board)
     }
     println("Game Over")
     println(board.gameStateDescription)
     board
   }
-  
 }
 
 

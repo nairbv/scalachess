@@ -6,48 +6,13 @@ import scala.actors.Actor._
 
 import com.weiglewilczek.slf4s._
 
-trait GameState {
 
-  /** has the game been won by the player who's turn it is to move? */
-  def isWinner:Boolean
-  def isLoser:Boolean
-  /** is the game currently in a "draw" state? */
-  def isTie:Boolean
-  /** has the game ended? */
-  def gameOver:Boolean = {
-    isWinner || isTie || isLoser
-  }
-  def preFetchDeep:Any
-  def preFetchShallow:Any
-
-  def gameStateDescription:String
-
-}
-
-
-/**
- * This trait represents the state of an arbitrary board game, and conducts
- * a breadth-first mini-max search in an attempt to find the best move.
+/** 
+ * A class to attempt to play a ComputerPlayableGame using a minimax strategy.
  *
  * @author Brian Vaughan
- */ 
-trait ComputerPlayableGameState extends GameState { self =>
- 
-  /** 
-   * All of the possible game-states that could result from making any 
-   * available moves.
-   */
-  def allPossibleResultingGameStates:Seq[ComputerPlayableGameState]
-
-  /**
-   * A Double evaluating how good this ComputerPlayableGame looks from the perspective
-   * of the current player.  Higher numeric values represent "better" boards.
-   */
-  def evaluate:Double
-}
-
-
-object MiniMaxGamePlayer {
+ */
+class MiniMaxGamePlayer {
   val logger = Logger("MiniMaxGamePlayer")
 
   /** 
@@ -184,7 +149,7 @@ object MiniMaxGamePlayer {
    */
   def bestMove(game:ComputerPlayableGameState, 
                depth:Int=1, 
-               actor:EvaluationActor=new EvaluationActor,
+               actor:EvaluationActor=new EvaluationActor(this),
                previousBest:Option[ComputerPlayableGameState]=None)
     : ComputerPlayableGameState = 
   {
@@ -240,7 +205,7 @@ object MiniMaxGamePlayer {
       Stream.from(2).foreach{
         case i => {
           currentDepth = i
-          val actor = new EvaluationActor
+          val actor = new EvaluationActor(this)
           val f = Futures.future {
             bestMove(game,currentDepth,actor, Some(theBestMove) )
           }
@@ -276,36 +241,44 @@ object MiniMaxGamePlayer {
   }
 
 
-  //a case class to store parameters to miniMaxEvaluate.
-  //avoids some of the unsafe type-erasure matching.
-  //might want to add another for the tuple2 if there's a way to 
-  //make that work.
-  case class EvaluationParameters(game:ComputerPlayableGameState,
-                                  depth:Int,
-                                  alpha:Double,
-                                  beta:Double,
-                                  previousBest
-                                      :Option[ComputerPlayableGameState]=None
-                                 )
 
-  case class ScoredGame(score:Double,game:ComputerPlayableGameState)
+}
 
 
-  /** 
-   * This actor handles queuing evaluation of miniMaxEvaluate functions.
-   * The function is recursive against this actor, so need to be careful
-   * not to block.
-   * An Actor is used so that progress of the iteratively-deepening 
-   * analysis can be stopped via a !"Exit" message once the time available 
-   * to make a decision has run-out.
-   */
-  class EvaluationActor extends Actor {
-      def act():Unit = {
-        loop { 
+//a case class to store parameters to miniMaxEvaluate.
+//avoids some of the unsafe type-erasure matching.
+//might want to add another for the tuple2 if there's a way to 
+//make that work.
+sealed case class EvaluationParameters(game:ComputerPlayableGameState,
+                                depth:Int,
+                                alpha:Double,
+                                beta:Double,
+                                previousBest
+                                    :Option[ComputerPlayableGameState]=None
+                                )
+
+sealed case class ScoredGame(score:Double,game:ComputerPlayableGameState)
+
+
+
+
+/** 
+ * This actor handles queuing evaluation of miniMaxEvaluate functions.
+ * The function is recursive against this actor, so need to be careful
+ * not to block.
+ * An Actor is used so that progress of the iteratively-deepening 
+ * analysis can be stopped via a !"Exit" message once the time available 
+ * to make a decision has run-out.
+ */
+class EvaluationActor(player:MiniMaxGamePlayer) extends Actor {
+    val logger = Logger("EvaluationActor")
+
+    def act():Unit = {
+      loop { 
         react { //Within(0) {
           case "Exit" => logger.debug("exiting!"); exit();return
           case EvaluationParameters(g,d,a,b,prevBest) => 
-            //catch some weird error case I had at one point
+          //catch some weird error case I had at one point
             if( sender == this ) {
               logger.warn(" sending message to 'this' actor?!?!")
               exit()
@@ -316,21 +289,20 @@ object MiniMaxGamePlayer {
               case "Exit" => logger.debug("exiting"); exit();return
             }
             actor {
-              sender ! MiniMaxGamePlayer.miniMaxEvaluate(this,g,d,a,b,prevBest)
+              sender ! player.miniMaxEvaluate(this,g,d,a,b,prevBest)
             }
           case x => 
             logger.warn("this shouldn't happen, msg:"+x+
                                 " sent by:"+sender);
             exit()
             System.exit(1)//kill quick to debug the error.
-        }}
+        }
       }
-      //just want to be able to "see" this actor if it gets printed.
-      override def toString = 
+    }
+    //just want to be able to "see" this actor if it gets printed.
+    override def toString = 
           "An evaluation actor."
-  }
 }
-
 
 
 
