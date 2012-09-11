@@ -37,7 +37,7 @@ trait ComputerPlayableGameState extends GameState { self =>
    * All of the possible game-states that could result from making any 
    * available moves.
    */
-  def allPossibleResultingGameStates:List[ComputerPlayableGameState]
+  def allPossibleResultingGameStates:Seq[ComputerPlayableGameState]
 
   /**
    * A Double evaluating how good this ComputerPlayableGame looks from the perspective
@@ -54,12 +54,18 @@ object MiniMaxGamePlayer {
    * Use a miniMax (technically "Negamax") algorithm to evaluate 
    * the given board state, retreiving the determined score of the optimal 
    * move and the resulting board state for the optimal move.
+   *
+   * @param PreviousDepthBest if this method has previously been called 
+   * with depth n-1, when calling with depth n pass the chosen game from the
+   * previous call.  This allows the algorithm to start by initially searching
+   * the game tree of a known good move.
    */
   def miniMaxEvaluate(actor:Actor,
                       game:ComputerPlayableGameState,
                       depth:Int=1,
                       alpha:Double= -9999999.0,
-                      beta:Double=99999999.0)
+                      beta:Double=99999999.0,
+                      previousDepthBest:Option[ComputerPlayableGameState]=None)
     :ScoredGame =
   {
     var localalpha = alpha
@@ -81,7 +87,7 @@ object MiniMaxGamePlayer {
       //in a multi-threaded way.
       //at one point this was helping performace, but right now is probably
       //unnecessary.
-      val futures = (states.map {
+/*      val futures = (states.map {
         case state:ComputerPlayableGameState => 
           Futures.future {
             //if we still have depth, we'll need the resulting boardstates
@@ -95,8 +101,18 @@ object MiniMaxGamePlayer {
           }
       })
       Futures.awaitAll(100,futures:_*)
+*/
 
-      val sortedStates = states.sortWith((b1,b2)=>b1.evaluate >= b2.evaluate)
+      val sortedStates = states.sortWith{
+        (b1,b2)=>
+            if( previousDepthBest.equals(Some(b1)) ) {
+              true 
+            } else if( previousDepthBest.equals(Some(b2)) ) {
+              false
+            } else {
+              b1.evaluate >= b2.evaluate
+            }
+      }
       sortedStates.zipWithIndex.foldLeft( ScoredGame(alpha, states.head ) ) {
         ( bestTuple,  gWithIndex ) => {
           val (bestScore,bestGame) = (bestTuple.score,bestTuple.game)
@@ -105,6 +121,8 @@ object MiniMaxGamePlayer {
           //debugging info...
           val (g,index) = gWithIndex
 
+          //previousBest is only relevant at the top level, the first decision
+          //tree to choose.
           val actResult =   (actor !! 
                   EvaluationParameters(g,depth-1,-beta,-localalpha))
 
@@ -166,7 +184,8 @@ object MiniMaxGamePlayer {
    */
   def bestMove(game:ComputerPlayableGameState, 
                depth:Int=1, 
-               actor:EvaluationActor=new EvaluationActor)
+               actor:EvaluationActor=new EvaluationActor,
+               previousBest:Option[ComputerPlayableGameState]=None)
     : ComputerPlayableGameState = 
   {
 
@@ -177,7 +196,7 @@ object MiniMaxGamePlayer {
       game
     } else {
       val actResult =   ( actor !! 
-                  EvaluationParameters(game,depth, -9999999.0,9999999.0) )
+         EvaluationParameters( game,depth, -9999999.0,9999999.0,previousBest ) )
       while( ! actResult.isSet ) {
         if( actor.getState == Actor.State.Terminated ) {
           logger.debug("dead actor")
@@ -223,7 +242,7 @@ object MiniMaxGamePlayer {
           currentDepth = i
           val actor = new EvaluationActor
           val f = Futures.future {
-            bestMove(game,currentDepth,actor)
+            bestMove(game,currentDepth,actor, Some(theBestMove) )
           }
           while( ! f.isSet ) {
             if( System.currentTimeMillis - start > timeout ) {
@@ -264,7 +283,10 @@ object MiniMaxGamePlayer {
   case class EvaluationParameters(game:ComputerPlayableGameState,
                                   depth:Int,
                                   alpha:Double,
-                                  beta:Double)
+                                  beta:Double,
+                                  previousBest
+                                      :Option[ComputerPlayableGameState]=None
+                                 )
 
   case class ScoredGame(score:Double,game:ComputerPlayableGameState)
 
@@ -282,7 +304,7 @@ object MiniMaxGamePlayer {
         loop { 
         react { //Within(0) {
           case "Exit" => logger.debug("exiting!"); exit();return
-          case EvaluationParameters(g,d,a,b) => 
+          case EvaluationParameters(g,d,a,b,prevBest) => 
             //catch some weird error case I had at one point
             if( sender == this ) {
               logger.warn(" sending message to 'this' actor?!?!")
@@ -294,7 +316,7 @@ object MiniMaxGamePlayer {
               case "Exit" => logger.debug("exiting"); exit();return
             }
             actor {
-              sender ! MiniMaxGamePlayer.miniMaxEvaluate(this,g,d,a,b)
+              sender ! MiniMaxGamePlayer.miniMaxEvaluate(this,g,d,a,b,prevBest)
             }
           case x => 
             logger.warn("this shouldn't happen, msg:"+x+

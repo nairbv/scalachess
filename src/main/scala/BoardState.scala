@@ -56,7 +56,7 @@ import Direction._
  * A chess "piece" has properties defining its behavior and 
  * the player (color) controlling that piece.
  */
-class Piece(name:String, val side:Color, val value:Int) {
+sealed abstract class Piece(name:String, val side:Color, val value:Int) {
   override def toString = side.toString + name
 }
 
@@ -91,7 +91,7 @@ case class King(override val side:Color) extends Piece("Ki",side,1000000)
  *
  * @see http://en.wikipedia.org/wiki/Board_representation_(chess)#0x88_method
  */
-final class BoardState(val board:List[Option[Piece]], 
+final class BoardState(val board:Seq[Option[Piece]], 
                        val turn:Color,
                        val movesIntoGame:Int=0,
                        val movesSinceCapture:Int=0) 
@@ -114,9 +114,23 @@ final class BoardState(val board:List[Option[Piece]],
               x => x equals Some( King(opponentColor)))
   }
   
-  class Purpose
+  // these are just internal for tracking what kind of moves we're looking
+  // for when searching for legal moves.
+  sealed class Purpose
+  //if we're evaluating the quality of a position, certain moves aren't useful.
+  //also, we might consider moves that attack our own pieces, since they
+  //control regions of the board even if they aren't legal moves in the 
+  //current turn.
   case object Evaluation extends Purpose
+  //just check for legality, filter later if this move lands us in check.
+  //diagonal pawn moves for example are not legal unless there's an opposing
+  //piece in that square.
   case object Legality extends Purpose
+  //when analyzing which destination squares would land an opponent in check,
+  //also need to consider diagonal pawn moves even if no opponent piece is 
+  //yet in that square.  This is called with purpose "Check" after a resulting
+  //board state has been generated to strictly check the legality of a move
+  //about to be made.
   case object Check extends Purpose
 
   /**
@@ -127,7 +141,7 @@ final class BoardState(val board:List[Option[Piece]],
    * for filtering moves that are illegal because of check.
    */
   private def possibleMovesFromSquare(x:Int,y:Int, purpose:Purpose=Legality)
-      :List[Int] = {
+      :Seq[Int] = {
 
     val start = index(x,y)
     val piece = pieceAt(start)
@@ -138,24 +152,24 @@ final class BoardState(val board:List[Option[Piece]],
           Nil
         } else 
         piece match {
-          case Queen(t) if( t == turn)  => {
+          case Queen(t)  => {
             (Direction.values.map{
               case d => getStraightMoves(start,d,purpose)
             }).toList
             .flatten
           }
-          case Bishop(t) if( t == turn) => {
+          case Bishop(t) => {
             (Direction.diagonal.map{
               case d => getStraightMoves(start,d,purpose)
             }).flatten
           }
-          case Rook(t) if( t == turn) => {
+          case Rook(t) => {
             (Direction.straight.map{
               case d => getStraightMoves(start,d,purpose)
             }).flatten
           }
           //todo: add en pasant move and promotion
-          case Pawn(t) if( t == turn) => {
+          case Pawn(t) => {
             t match {
               case White => {
                 //for pawn evaluation, don't count moves that can't
@@ -174,7 +188,7 @@ final class BoardState(val board:List[Option[Piece]],
               }
             }
           }
-          case Knight(t) if( t == turn) => {
+          case Knight(t) => {
             val relativeSquares = knightMove(North,East,start) :: 
                                   knightMove(North,West,start) :: 
                                   knightMove(South,East,start) :: 
@@ -197,12 +211,12 @@ final class BoardState(val board:List[Option[Piece]],
             }
           }
           //todo: add castling move.
-          case King(t) if( t == turn) => {
+          case King(t)  => {
             (Direction.values.map{
               case d => getStraightMoves(start,d,purpose,1)
             }).toList.flatten
           }
-          case piece:Piece if (piece.side != turn)=> Nil
+//          case piece:Piece => Nil
         }
       }
     }
@@ -290,7 +304,7 @@ final class BoardState(val board:List[Option[Piece]],
     }
   }
 
-  private[chess] lazy val allLegalMovesEvaluation:List[Tuple2[Int,Int]]={
+  private[chess] lazy val allLegalMovesEvaluation:Seq[Tuple2[Int,Int]]={
     getLegalMoves(Evaluation)
   }
 
@@ -300,15 +314,15 @@ final class BoardState(val board:List[Option[Piece]],
    * of landing in check.  This will be filtered later.
    * The moves are represented as a tuple of (from_index,to_index)
    */
-  private[chess] lazy val allLegalMoves:List[Tuple2[Int,Int]] = {
+  private[chess] lazy val allLegalMoves:Seq[Tuple2[Int,Int]] = {
     getLegalMoves(Legality)
   }
 
-  private[chess] lazy val allLegalMovesCheck:List[Tuple2[Int,Int]]= {
+  private[chess] lazy val allLegalMovesCheck:Seq[Tuple2[Int,Int]]= {
     getLegalMoves(Check)
   }
 
-  private def getLegalMoves(purpose:Purpose=Legality):List[Tuple2[Int,Int]]={
+  private def getLegalMoves(purpose:Purpose=Legality):Seq[Tuple2[Int,Int]]={
     ( (board.zipWithIndex.collect{case (Some(p),i)=> (p,i)}) map  {
       case (piece,i) => {
         //this is probably the most expensive operation, so making it
@@ -507,11 +521,11 @@ final class BoardState(val board:List[Option[Piece]],
    * includes board states that are illegal (put the player in check), because
    * we are using the result of this method to check for those illegal moves.
    */
-  override def allPossibleResultingGameStates:List[ComputerPlayableGameState] = 
+  override def allPossibleResultingGameStates:Seq[ComputerPlayableGameState] = 
         lazyAllPossibleResultingGameStates
 
   //for some reason scala doesn't allow abstract lazy val's
-  private lazy val lazyAllPossibleResultingGameStates:List[BoardState] = {
+  private lazy val lazyAllPossibleResultingGameStates:Seq[BoardState] = {
     (allLegalMoves.filter{
       (move)=>isLegalMove(getX(move._1),getY(move._1),
                           getX(move._2),getY(move._2),true)
@@ -628,6 +642,21 @@ final class BoardState(val board:List[Option[Piece]],
     
     output
   }
+
+  /** 
+   * Will need to override equals to use transposition tables or to check
+   * for any kind of previously evaluated state.
+   */
+  override def equals(other:Any):Boolean = {
+    other match {
+      case that: BoardState => 
+              this.board == that.board && 
+              this.turn == that.turn && 
+              this.movesIntoGame == that.movesIntoGame &&
+              this.movesSinceCapture == that.movesSinceCapture
+      case _ => false
+    }
+  }
 }
 
 /**
@@ -658,6 +687,16 @@ object BoardState {
                 .map{ case x:Piece => Some(x) }:List[Option[Piece]]
 
   private lazy val midBoard = List.fill(16 * 4)(None)
+
+  private lazy val boardList:Seq[Option[Piece]] = 
+        ((backRowWhite) ::: 
+            empty8 ::: 
+        List.fill(8)(Some(Pawn(White))) ::: empty8 :::
+        midBoard :::
+        List.fill(8)(Some(Pawn(Black))) ::: empty8 :::
+        (backRowBlack) ::: 
+            empty8)
+
   /** 
    * This is the default starting board for a normal chess game. 
    * This is a def not a val because otherwise eventually the 
@@ -667,14 +706,6 @@ object BoardState {
    * garbage collection.
    */
   def startingBoard:BoardState = {
-    lazy val boardList = 
-        (backRowWhite) ::: 
-            empty8 ::: 
-        List.fill(8)(Some(Pawn(White))) ::: empty8 :::
-        midBoard :::
-        List.fill(8)(Some(Pawn(Black))) ::: empty8 :::
-        (backRowBlack) ::: 
-            empty8:List[Option[Piece]]
     new BoardState(boardList, White)
   }
 
