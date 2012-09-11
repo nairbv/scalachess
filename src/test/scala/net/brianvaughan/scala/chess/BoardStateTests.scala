@@ -71,6 +71,19 @@ class ChessSpec extends FlatSpec with ShouldMatchers {
     board.isLoser should equal(true)
   }
 
+  "a castling game" should "correctly allow a castling move" in {
+    var board = BoardState.startingBoard
+    board = board.movePiece(4,1,4,3)//e4
+    board = board.movePiece(4,6,4,4)//e5
+    board = board.movePiece(5,0,2,3)//bishop to c4
+    board = board.movePiece(5,7,2,4)//mimicking again
+    board = board.movePiece(6,0,5,2)//get knight out of the way
+    board = board.movePiece(6,7,5,5)//mimick
+    board = board.movePiece(4,0,6,0)//castle
+
+    board.pieceAt(5,0) should equal(Some(Rook(Color.White)))
+  }
+
   "an empty board" should "be detected as a stalemate" in {
     val board = BoardState.emptyBoard
     board.isTie should equal(true)

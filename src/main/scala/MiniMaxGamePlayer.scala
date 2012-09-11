@@ -13,24 +13,24 @@ import com.weiglewilczek.slf4s._
  * @author Brian Vaughan
  */
 class MiniMaxGamePlayer {
-  val logger = Logger("MiniMaxGamePlayer")
+  private val logger = Logger("MiniMaxGamePlayer")
 
   //the transposition table will be used for board states we've seen before.
   //these board states are '.equal()' to each other, but the previously 
   //seen board state will already have its lazily intialized dependent 
   //values set.  Some of the lazily initialized vals require some board
   //analysis, so repeated positions should be cheaper to analyze this way.
+  //
+  //most of our "hits" are just because we are iteratively deepening, so
+  //most of the time we're just returnning back the same board that was put
+  //in the table on a previous lower-depth iterative deepening analysis.
+  //how to determine actual hits on transposed positions?
   private var transpositionTable = 
         Map[ComputerPlayableGameState,ComputerPlayableGameState]()
 
   private def getOrAddTransposition(element:ComputerPlayableGameState)
     :ComputerPlayableGameState =
   {
-    //if( transpositionTable.contains( element ) ) {
-      //we have a hit on the transposition table!
-      //wow, surprised how much this printed out :-P
-    //  logger.debug("transposition hit!")
-    //}
     transpositionTable = transpositionTable.updated(
                 element,transpositionTable.getOrElse(element,element))
     transpositionTable.get(element).get
@@ -54,7 +54,8 @@ class MiniMaxGamePlayer {
    * previous call.  This allows the algorithm to start by initially searching
    * the game tree of a known good move.
    */
-  def miniMaxEvaluate(actor:Actor,
+  private[chess] def miniMaxEvaluate(
+                      actor:Actor,
                       game:ComputerPlayableGameState,
                       depth:Int=1,
                       alpha:Double= -9999999.0,
@@ -251,7 +252,12 @@ class MiniMaxGamePlayer {
           while( ! f.isSet ) {
             if( System.currentTimeMillis - start > timeout ) {
               actor ! "Exit"
-              logDecisionStats(currentDepth,start)
+              //didn't finish in time, returned best move is from previous
+              //iteration.  killing background actor and moving on.
+              // note:
+              // there will be a "1234567" in the logs returned by the killed
+              // backgroudn actor
+              logDecisionStats(currentDepth,start - 1)
               return theBestMove
             }
             //causes us to wait 100 ms for future to be set, then we can check
@@ -288,7 +294,8 @@ class MiniMaxGamePlayer {
 //avoids some of the unsafe type-erasure matching.
 //might want to add another for the tuple2 if there's a way to 
 //make that work.
-sealed case class EvaluationParameters(game:ComputerPlayableGameState,
+private[chess] sealed case class 
+           EvaluationParameters(game:ComputerPlayableGameState,
                                 depth:Int,
                                 alpha:Double,
                                 beta:Double,
@@ -309,8 +316,8 @@ sealed case class ScoredGame(score:Double,game:ComputerPlayableGameState)
  * analysis can be stopped via a !"Exit" message once the time available 
  * to make a decision has run-out.
  */
-class EvaluationActor(player:MiniMaxGamePlayer) extends Actor {
-    val logger = Logger("EvaluationActor")
+private[chess] class EvaluationActor(player:MiniMaxGamePlayer) extends Actor {
+    private val logger = Logger("EvaluationActor")
 
     def act():Unit = {
       loop { 

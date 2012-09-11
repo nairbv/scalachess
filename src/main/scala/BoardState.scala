@@ -58,6 +58,7 @@ import Direction._
  */
 sealed abstract class Piece(name:String, val side:Color, val value:Int) {
   override def toString = side.toString + name
+
 }
 
 //the pieces
@@ -68,6 +69,8 @@ case class Bishop(override val side:Color) extends Piece("Bi",side,3)
 case class Queen(override val side:Color) extends Piece("Qu",side,9)
 case class King(override val side:Color) extends Piece("Ki",side,1000000)
 
+
+private[chess] case class CastlingAbility(direction:Direction, side:Color)
 
 
 /**
@@ -93,8 +96,11 @@ case class King(override val side:Color) extends Piece("Ki",side,1000000)
  */
 final class BoardState(val board:Seq[Option[Piece]], 
                        val turn:Color,
+                       castlingAbilities:Seq[CastlingAbility],
                        override val movesIntoGame:Int=0,
-                       val movesSinceCapture:Int=0) 
+                       val movesSinceCapture:Int=0,
+                       promotionPiece:Piece=Queen(null)
+                       )
   extends ComputerPlayableGameState
 {
   val logger = Logger("BoardState")
@@ -214,7 +220,26 @@ final class BoardState(val board:Seq[Option[Piece]],
           case King(t)  => {
             (Direction.values.map{
               case d => getStraightMoves(start,d,purpose,1)
-            }).toList.flatten
+            }).toList.flatten :::
+            (if( purpose == Legality ) {
+              castlingAbilities.filter( _.side == t )
+              .map {
+                case x=> 
+                  getStraightMoves(start,x.direction,Legality,2)
+                  .filter{
+                    dest => 
+                      //filter out moves if it's a left castle and there's
+                      //a piece at b1 (or b7) depending on player
+                      if( getX(dest) == 2 && 
+                          pieceAt( 1, getY(dest))!=None){
+                        false
+                      } else {
+                        true
+                      }
+                  }
+
+              }.toList.flatten
+            } else Nil)
           }
 //          case piece:Piece => Nil
         }
@@ -347,12 +372,14 @@ final class BoardState(val board:Seq[Option[Piece]],
    * // todo: need a helper method that generically checks if a square is
    * // "under attack," to help with castling rules.
    */
-  lazy val inCheck = {
-    ((new BoardState(board,opponentColor))
+  lazy val inCheck = squareAttacked(findKingIndex)
+  
+  private def squareAttacked(index:Int) = {
+    ((new BoardState(board,opponentColor,castlingAbilities))
     .allLegalMovesCheck map {
       case (from,to) => to 
     })
-    .contains(findKingIndex)
+    .contains(index)
   }
 
 
@@ -430,6 +457,7 @@ final class BoardState(val board:Seq[Option[Piece]],
    */
   override def evaluate:Double = lazyEvaluate
   
+  //todo: this code is messy, use temporary variables to clean up readability.
   private lazy val lazyEvaluate:Double = {
     //checking for a winner on each move turns out to be too expensive
     /*if( isWinner ) {
@@ -457,7 +485,7 @@ final class BoardState(val board:Seq[Option[Piece]],
             case None=> .001
                                // king has infinite value, don't want
                                //to skew this evaluation just for a "check"
-            case Some(x) => .001 + (x.value.min(40)/100.0)
+            case Some(x) => .001 + (x.value.min(50) / 100.0)
           }) +
           // positions that attack the center of the board are more valuable.
           // but become less valuable later in the game when there are
@@ -465,22 +493,62 @@ final class BoardState(val board:Seq[Option[Piece]],
           // corner to checkmate him.
           distanceFromEdge(to) * ( opponentAllPiecesExKingValue / 1000.0 )
         }
-      }) + (if( allPiecesExKingValue < 7 ) { 
+      }) + 
+      (if( endGame ) { 
         //if we're getting into the end game, the opponent should view
         //a good move for us as being one that allows us more space to move
         //and avoid checkmate.
         possibleMovesFromSquare(getX(findKingIndex),
                                 getY(findKingIndex)).size / 20.0
+      } else if(opening) {
+        (castlingAbilities.filter{
+          a => a match {
+            case CastlingAbility(_,c) if(c==turn) => true
+            case _ => false
+          }
+        }).size / 200.0 // gives .005 point value for each available castling 
+                       // direction
       } else {
         0
-      })
+      }) + (
+        //add up specific rules for specific pieces
+        (board.zipWithIndex.map{
+          case (Some(piece),i) if(piece.side==turn) =>
+            // subtract some points for having the queen across the 
+            // board in the opening.
+            piece match{
+              case Queen(_) => 
+                if( opening ) {
+                  //queens shouldn't come out into the fray too early.
+                  -offSidesRank(i)/50.0
+                } else 0.0
+              case Pawn(_) =>
+                //pawns that are further towards promotion are more valuable
+                offSidesRank(i)* 0.001
+              case _ => 0.0
+            }
+          case _ => 0
+        }).sum
+      )
     }
   }
+
+  private val endGame = allPiecesExKingValue < 8
+  private val opening = allPiecesExKingValue > 35
+  private val midGame = ! endGame && ! opening
   
   private[chess] def distanceFromEdge(index:Int):Int = {
     val x = getX(index)
     val y = getY(index)
     (x.min(7-x).max( y.min(7-y) ))
+  }
+  //higher if further offsides.
+  private[chess] def offSidesRank(index:Int):Int ={
+    if( turn == White ) {
+      getY(index)
+    } else {
+      7 - getY(index)
+    }
   }
 
   def preFetchShallow = allLegalMovesEvaluation
@@ -494,8 +562,30 @@ final class BoardState(val board:Seq[Option[Piece]],
    * (x,y) to point (x2,y2).  It does not, for example, ensure that x2,y2
    * keeps the current player out of check.
    */
-  private def isLegalMove(x:Int,y:Int,x2:Int,y2:Int, strict:Boolean=true) = {
+  private def isLegalMove(x:Int,y:Int,x2:Int,y2:Int, strict:Boolean=true)
+    :Boolean = 
+  {
     pieceAt(x,y) match { 
+      case Some(King(c)) if( (x2 -x).abs > 1 ) =>
+        if( possibleMovesFromSquare(x,y).contains(index(x2,y2))) {
+          if( strict ) {
+            //can't castle out of or through check.
+            if( x2 > x ) {
+              !(squareAttacked(index(4,y)) ||
+              squareAttacked(index(5,y)) ||
+              squareAttacked(index(6,y)) ||
+              squareAttacked(index(7,y)))
+            } else {
+              !(squareAttacked(index(0,y)) ||
+              squareAttacked(index(1,y)) ||
+              squareAttacked(index(2,y)) ||
+              squareAttacked(index(3,y)) ||
+              squareAttacked(index(4,y)))
+            }
+          } else {
+            true
+          }
+        } else false
       case Some(piece) => {
         if( possibleMovesFromSquare(x,y).contains(index(x2,y2))){
           //not allowed to move yourself into check
@@ -527,7 +617,7 @@ final class BoardState(val board:Seq[Option[Piece]],
   //for some reason scala doesn't allow abstract lazy val's
   private lazy val lazyAllPossibleResultingGameStates:Seq[BoardState] = {
     (allLegalMoves.filter{
-      (move)=>isLegalMove(getX(move._1),getY(move._1),
+      move=> isLegalMove(getX(move._1),getY(move._1),
                           getX(move._2),getY(move._2),true)
     }) 
     .map {
@@ -551,15 +641,70 @@ final class BoardState(val board:Seq[Option[Piece]],
     movePieceWithoutValidation(x,y,x2,y2)
   }
 
+  /** 
+   * Change what piece will be used for promoting pawns in the next move.
+   * The color of the passed in piece will be ignored.
+   */
+  def changePromotionPiece(piece:Piece):BoardState = {
+    //just cloning the board with new piece
+    new BoardState(board,
+                   turn,
+                   castlingAbilities,
+                   movesIntoGame,
+                   movesSinceCapture,
+                   piece)
+  }
+
   private def movePieceWithoutValidation(x:Int,y:Int,x2:Int,y2:Int) ={
-    //todo: in pieceToMove, need to store that this piece has moved for 
-    //looking up if it can still castle etc.
-    val pieceToMove = pieceAt(x,y)
+    var pieceToMove = pieceAt(x,y)
     val pieceAtDestination = pieceAt(x2,y2)
-    val newBoard = board.updated(index(x,y),None)
+    //handle with pawn promotion.
+    pieceToMove match {
+      case Some(Pawn(x)) => 
+        if( (x == White && y2 == 7) || (x==Black && y2==0 ) ) {
+          //this is ugly, but don't feel like adding method to every subclass
+          //right now.
+          pieceToMove = Some((promotionPiece.getClass.getConstructors.head)
+                        .newInstance(x).asInstanceOf[Piece])
+          //i'd like to use this, but apparently it's a 'language feature'
+          //and there's no way to tell the parent class that all of the
+          //subclasses that will be case classes (which all have 'copy')
+          //pieceToMove = promotionPiece.copy(side=x)
+        }
+      case x =>
+    }
+
+    var newBoard = board.updated(index(x,y),None)
                    .updated(index(x2,y2),pieceToMove)
+
+    val newCastlingAbilities = {
+      pieceToMove match {
+        case Some(King(c)) => {
+          
+          if(  (x2 - x).abs == 2 ) {
+            //this is a castling move, adjust the rook
+            if( x2 > x ) {
+              val rook = pieceAt(7,y)
+              newBoard = newBoard.updated(index(7,y),None)
+                            .updated(index(5,y),rook)
+            } else {
+              val rook = pieceAt(0,y)
+              newBoard = newBoard.updated(index(0,y),None)
+                            .updated(index(3,y),rook)
+            }
+          }
+          castlingAbilities.filterNot(_==CastlingAbility(East,c))
+          .filterNot(_==CastlingAbility(West,c))
+        }
+        case Some(Rook(c)) =>
+          castlingAbilities.filterNot(x==0 && _==CastlingAbility(West,c))
+          .filterNot( x==7 && _ == CastlingAbility(East,c))
+        case x => castlingAbilities
+      }
+    }
     new BoardState(newBoard,
                    opponentColor,
+                   newCastlingAbilities,
                    movesIntoGame+1,
                    pieceAtDestination match {
                      case Some(p) => 0
@@ -708,6 +853,12 @@ object BoardState {
         (backRowBlack) ::: 
             empty8)
 
+  private val defaultCastlingAbilities = List(
+    CastlingAbility(East,White),
+    CastlingAbility(West,White),
+    CastlingAbility(East,Black),
+    CastlingAbility(West,Black))
+
   /** 
    * This is the default starting board for a normal chess game. 
    * This is a def not a val because otherwise eventually the 
@@ -717,12 +868,12 @@ object BoardState {
    * garbage collection.
    */
   def startingBoard:BoardState = {
-    new BoardState(boardList, White)
+    new BoardState(boardList, White,defaultCastlingAbilities)
   }
 
   /** for testing */
   lazy val emptyBoard = {
-    new BoardState(List.fill(16*8)(None), White )
+    new BoardState(List.fill(16*8)(None), White, defaultCastlingAbilities)
   }
   
 
