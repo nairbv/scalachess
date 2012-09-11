@@ -110,7 +110,9 @@ class MiniMaxGamePlayer {
             }
       }
 
-      sortedStates.zipWithIndex.foldLeft( ScoredGame(alpha, states.head ) ) {
+      sortedStates.zipWithIndex.foldLeft( 
+              ScoredGame(alpha, sortedStates.head ) ) 
+      {
         ( bestTuple,  gWithIndex ) => {
           val (bestScore,bestGame) = (bestTuple.score,bestTuple.game)
           
