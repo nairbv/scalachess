@@ -757,16 +757,16 @@ final class BoardState(val board:Seq[Option[Piece]],
   def getY(index:Int) = index / 16
   def coordinates(index:Int) = (getX(index),getY(index))
 
-  def allPieces = {
+  private[chess] lazy val allPieces = {
     board.collect{ case Some(square) => square }.filter{
       case piece => piece.side == turn
     }
   }
-  def allPiecesExKingValue = {
+  private[chess] lazy val allPiecesExKingValue = {
     allPieces.foldLeft(0){_ + _.value } - 1000000
   }
 
-  def opponentAllPiecesExKingValue = {
+  private[chess] lazy val opponentAllPiecesExKingValue = {
     board.collect { case Some(square) => square }.filter{
       case piece=>piece.side != turn 
     }.foldLeft(0) { _ + _.value } - 1000000

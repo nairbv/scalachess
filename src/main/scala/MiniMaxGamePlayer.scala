@@ -257,7 +257,7 @@ class MiniMaxGamePlayer {
               // note:
               // there will be a "1234567" in the logs returned by the killed
               // backgroudn actor
-              logDecisionStats(currentDepth,start - 1)
+              logDecisionStats(currentDepth-1,start)
               return theBestMove
             }
             //causes us to wait 100 ms for future to be set, then we can check
