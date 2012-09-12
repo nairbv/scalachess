@@ -894,10 +894,10 @@ object BoardState {
   }
   
 
-  def watchAGame(depth:Int=2) = {
+  def watchAGame(depth:Int=2, 
+                 player:MiniMaxGamePlayer = new MiniMaxGamePlayer) = {
     var board:ComputerPlayableGameState = startingBoard
     //using print instead of logger for normal game output
-    val player = new MiniMaxGamePlayer
     println(board)
     while( ! board.gameOver ) {
       board= player.bestMove(board,depth)
@@ -909,10 +909,10 @@ object BoardState {
     board
   }
   
-  def watchAnIterativeDeepeningGame(millis:Long) = {
+  def watchAnIterativeDeepeningGame(millis:Long, 
+               player:MiniMaxGamePlayer = new MiniMaxGamePlayer) = {
     var board:ComputerPlayableGameState = startingBoard
     println(board)
-    val player = new MiniMaxGamePlayer
     while( ! board.gameOver ) {
       board = player.bestMoveIterativeDeepening(board,millis)
       println(board)
