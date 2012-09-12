@@ -485,7 +485,17 @@ final class BoardState(val board:Seq[Option[Piece]],
             case None=> .001
                                // king has infinite value, don't want
                                //to skew this evaluation just for a "check"
-            case Some(x) => .001 + (x.value.min(50) / 100.0)
+            case Some(x) => .001 + 
+                //an attack is more useful if performed using a weaker piece.
+                ( (x.value.min(50) - 
+                   (pieceAt(from)
+                    .getOrElse(throw new InvalidMoveException(
+                          "trying to move piece that doesn't exist"))
+                    .value.min(50)/4.0))
+                    //if it's a big piece capturing a small piece it's
+                    //still of value, just less.
+                    .max(.4)
+                   / 100.0)
           }) +
           // positions that attack the center of the board are more valuable.
           // but become less valuable later in the game when there are
@@ -624,7 +634,8 @@ final class BoardState(val board:Seq[Option[Piece]],
         lazyAllPossibleResultingGameStates
 
   //for some reason scala doesn't allow abstract lazy val's
-  private lazy val lazyAllPossibleResultingGameStates:Seq[BoardState] = {
+  /// ...hmm... def seems to be faster than caching as a lazy val.
+  private def lazyAllPossibleResultingGameStates:Seq[BoardState] = {
     (allLegalMoves.filter{
       //without this test, we end up with moves that allow the king
       //to be captured (moves into positions where the king captures a piece,

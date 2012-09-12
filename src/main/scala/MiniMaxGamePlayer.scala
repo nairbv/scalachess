@@ -25,6 +25,10 @@ class MiniMaxGamePlayer {
   //most of the time we're just returnning back the same board that was put
   //in the table on a previous lower-depth iterative deepening analysis.
   //how to determine actual hits on transposed positions?
+/*
+  this wasn't thread safe... and wasn't helping.
+  realy I'd need a database of board states for it to be effective.
+
   private var transpositionTable = 
         Map[ComputerPlayableGameState,ComputerPlayableGameState]()
 
@@ -43,7 +47,7 @@ class MiniMaxGamePlayer {
       k => k.movesIntoGame >= lastMove
     }
   }
-
+*/
   /** 
    * Use a miniMax (technically "Negamax") algorithm to evaluate 
    * the given board state, retreiving the determined score of the optimal 
@@ -98,9 +102,10 @@ class MiniMaxGamePlayer {
       Futures.awaitAll(100,futures:_*)
 */
 
-      val sortedStates = states.map {
-        case a => getOrAddTransposition(a)
-      }.sortWith{
+      val sortedStates = states//.map {
+      //  case a => getOrAddTransposition(a)
+     // }
+      .sortWith{
         (b1,b2)=>
             if( previousDepthBest.equals(Some(b1)) ) {
               true 
@@ -117,7 +122,7 @@ class MiniMaxGamePlayer {
         ( bestTuple,  gWithIndex ) => {
           val (bestScore,bestGame) = (bestTuple.score,bestTuple.game)
           
-          //hm... he zip makes this a bit complicated, and is only used for
+          //hm... the zip makes this a bit complicated, and is only used for
           //debugging info...
           val (g,index) = gWithIndex
 
@@ -174,7 +179,7 @@ class MiniMaxGamePlayer {
   
   def bestMove(game:ComputerPlayableGameState,
                depth:Int=1):ComputerPlayableGameState = {
-    clearTransposition(game.movesIntoGame)
+    //clearTransposition(game.movesIntoGame)
     bestMove(game,depth,new EvaluationActor(this),None)
   }
 
