@@ -8,8 +8,11 @@ I only had about a day to do it, so it is far from perfect.  It doesn't
 implement castling, en-passant, pawn promotion, there is no real UI, and there
 is no AI.
 
-(UPDATE: I later implemented a breadth-first mini-max search for a simple AI 
-player).
+UPDATE: I later implemented a breadth-first mini-max search for a simple AI 
+player.
+
+UPDATE: later implemented castling and pawn promotion.  Still no en-passant
+
 
 My Requirements:
 ====================================================================

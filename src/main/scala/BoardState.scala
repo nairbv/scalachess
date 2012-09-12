@@ -248,7 +248,7 @@ final class BoardState(val board:Seq[Option[Piece]],
   }
   
   /**
-   * Gets a single possible destination squares for a Knight for a specified
+   * Gets a single possible destination square for a Knight for a specified
    * pair of one and two square directions.
    */
   private def knightMove(direction1:Direction,direction2:Direction,start:Int)=
@@ -348,10 +348,13 @@ final class BoardState(val board:Seq[Option[Piece]],
   }
 
   private def getLegalMoves(purpose:Purpose=Legality):Seq[Tuple2[Int,Int]]={
-    ( (board.zipWithIndex.collect{case (Some(p),i)=> (p,i)}) map  {
+    val unflattened = 
+        ( (board.zipWithIndex.collect{case (Some(p),i)=> (p,i)}) map  {
       case (piece,i) => {
         //this is probably the most expensive operation, so making it
         //multi-threaded.
+        //strange.. in the current version, if I uncomment this futures
+        //code, the compiler just hangs forever.
 //        scala.actors.Futures.future {
           possibleMovesFromSquare(getX(i),getY(i),purpose).map {
             //so that the result is a list of (from,to)
@@ -359,8 +362,10 @@ final class BoardState(val board:Seq[Option[Piece]],
           }
 //        }
       }
-    })//.map { future => future.apply() }
-    .flatten
+    })
+//    scala.actors.Futures.awaitAll(200,unflattened :_*)
+//    val applied = unflattened.map { future => future.apply() }
+    unflattened.flatten
   }
 
   lazy val numberOfPossibleMoves = allLegalMoves.size
@@ -468,13 +473,8 @@ final class BoardState(val board:Seq[Option[Piece]],
     if( fiftyMoveDraw ) {
       0
     } else {
-      board.foldLeft(0.0){
-        case (a,b)=>a + ( b match {
-          case None=>0.0
-          case Some(x)=> if(x.side==turn) { x.value } else { -x.value }
-        })
-      } +
-      (.01 * allLegalMovesEvaluation.foldLeft(0.0) {
+      
+     val mobilityAndAttack = allLegalMovesEvaluation.foldLeft(0.0) {
         case (sum, (from,to))=> {
           sum + 
           //constant factor to add per legal move.
@@ -493,8 +493,9 @@ final class BoardState(val board:Seq[Option[Piece]],
           // corner to checkmate him.
           distanceFromEdge(to) * ( opponentAllPiecesExKingValue / 1000.0 )
         }
-      }) + 
-      (if( endGame ) { 
+      }
+
+      val gamePhaseRules = (if( endGame ) { 
         //if we're getting into the end game, the opponent should view
         //a good move for us as being one that allows us more space to move
         //and avoid checkmate.
@@ -510,7 +511,9 @@ final class BoardState(val board:Seq[Option[Piece]],
                        // direction
       } else {
         0
-      }) + (
+      })
+      
+      val pieceSpecificRules = (
         //add up specific rules for specific pieces
         (board.zipWithIndex.map{
           case (Some(piece),i) if(piece.side==turn) =>
@@ -524,12 +527,18 @@ final class BoardState(val board:Seq[Option[Piece]],
                 } else 0.0
               case Pawn(_) =>
                 //pawns that are further towards promotion are more valuable
-                offSidesRank(i)* 0.001
+                //the benefit is exponential as they get closer to the
+                //other side, so squaring.
+                math.pow(offSidesRank(i),2) * 0.001 
               case _ => 0.0
             }
           case _ => 0
         }).sum
       )
+
+      allPiecesExKingValue - opponentAllPiecesExKingValue +
+        0.01 * mobilityAndAttack + pieceSpecificRules + gamePhaseRules
+
     }
   }
 
@@ -617,6 +626,14 @@ final class BoardState(val board:Seq[Option[Piece]],
   //for some reason scala doesn't allow abstract lazy val's
   private lazy val lazyAllPossibleResultingGameStates:Seq[BoardState] = {
     (allLegalMoves.filter{
+      //without this test, we end up with moves that allow the king
+      //to be captured (moves into positions where the king captures a piece,
+      //where the resulting position is attacked by another pawn.
+      //From the perspective of the opponent, the square was not attacked when
+      //it contained an on-side piece.
+      //failure case: IndexOutOfBoundsException(-1) after getting kingIndex
+      //and looking for moves.
+      //need to find more efficient way to handle this case.
       move=> isLegalMove(getX(move._1),getY(move._1),
                           getX(move._2),getY(move._2),true)
     }) 
