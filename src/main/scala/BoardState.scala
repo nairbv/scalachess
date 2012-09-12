@@ -485,7 +485,7 @@ final class BoardState(val board:Seq[Option[Piece]],
             case None=> .001
                                // king has infinite value, don't want
                                //to skew this evaluation just for a "check"
-            case Some(x) => .001 + 
+            case Some(x) if( x.side != turn) => .001 + 
                 //an attack is more useful if performed using a weaker piece.
                 ( (x.value.min(50) - 
                    (pieceAt(from)
@@ -496,7 +496,10 @@ final class BoardState(val board:Seq[Option[Piece]],
                     //still of value, just less.
                     .max(.4)
                    / 100.0)
-          }) +
+
+            // no points for attacks that hit our own pieces
+            case Some(x) => 0.0
+           }) +
           // positions that attack the center of the board are more valuable.
           // but become less valuable later in the game when there are
           // few pieces left and we need to push the opponent king into a 
@@ -539,7 +542,10 @@ final class BoardState(val board:Seq[Option[Piece]],
                 //pawns that are further towards promotion are more valuable
                 //the benefit is exponential as they get closer to the
                 //other side, so squaring.
-                math.pow(offSidesRank(i),2) * 0.001 
+                val rank = offSidesRank(i)
+                if( rank > 3 ) {
+                  math.pow( rank - 3 ,2) * 0.001 
+                } else 0
               case _ => 0.0
             }
           case _ => 0
