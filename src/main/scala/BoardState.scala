@@ -1,5 +1,6 @@
-package net.brianvaughan.scala.chess
+package net.brianvaughan.scala.ai.games.chess
 
+import net.brianvaughan.scala.ai.games._
 
 import com.weiglewilczek.slf4s._
 
@@ -10,8 +11,6 @@ import com.weiglewilczek.slf4s._
  * @author Brian Vaughan
  */
 
-/** thrown when an invalid move is attempted */
-class InvalidMoveException(msg:String) extends IllegalArgumentException(msg)
 
 /**
  * Enumerates the players of the game.
@@ -161,8 +160,7 @@ final class BoardState(val board:Seq[Option[Piece]],
           case Queen(t)  => {
             (Direction.values.map{
               case d => getStraightMoves(start,d,purpose)
-            }).toList
-            .flatten
+            }).toSeq.flatten
           }
           case Bishop(t) => {
             (Direction.diagonal.map{
@@ -180,16 +178,16 @@ final class BoardState(val board:Seq[Option[Piece]],
               case White => {
                 //for pawn evaluation, don't count moves that can't
                 //kill forward
-                getStraightMoves(start,North,purpose,if(y==1){2} else {1}) :::
+                getStraightMoves(start,North,purpose,if(y==1){2} else {1}) ++
                 //but for diagonal moves, if they can kill a friendly piece,
                 //it's still one more attacking move and useful for evaluation.
-                getStraightMoves(start,NorthEast,purpose,1) :::
+                getStraightMoves(start,NorthEast,purpose,1) ++
                 getStraightMoves(start,NorthWest,purpose,1)
               }
               case Black => {
                 getStraightMoves(
-                      start,South,purpose,if(y==6){2}else{1}) :::
-                getStraightMoves(start,SouthEast,purpose,1) :::
+                      start,South,purpose,if(y==6){2}else{1}) ++
+                getStraightMoves(start,SouthEast,purpose,1) ++
                 getStraightMoves(start,SouthWest,purpose,1)
               }
             }
@@ -216,12 +214,13 @@ final class BoardState(val board:Seq[Option[Piece]],
               }
             }
           }
-          //todo: add castling move.
           case King(t)  => {
             (Direction.values.map{
               case d => getStraightMoves(start,d,purpose,1)
-            }).toList.flatten :::
+            }).toSeq
+            .flatten ++
             (if( purpose == Legality ) {
+              //side here means piece color not direction.
               castlingAbilities.filter( _.side == t )
               .map {
                 case x=> 
@@ -238,7 +237,8 @@ final class BoardState(val board:Seq[Option[Piece]],
                       }
                   }
 
-              }.toList.flatten
+              }
+              .flatten
             } else Nil)
           }
 //          case piece:Piece => Nil
@@ -322,7 +322,7 @@ final class BoardState(val board:Seq[Option[Piece]],
           case _ => false
          })
        }
-    ).toList
+    )
     .map {
       //convert the resulting list of "number of squares" into board indexes.
       case squares => getRelativeSquare(start,squares,direction)
@@ -374,8 +374,6 @@ final class BoardState(val board:Seq[Option[Piece]],
    * Find out if the current player is in check (the player who's turn it is 
    * now).
    *
-   * // todo: need a helper method that generically checks if a square is
-   * // "under attack," to help with castling rules.
    */
   lazy val inCheck = squareAttacked(findKingIndex)
   
@@ -462,7 +460,6 @@ final class BoardState(val board:Seq[Option[Piece]],
    */
   override def evaluate:Double = lazyEvaluate
   
-  //todo: this code is messy, use temporary variables to clean up readability.
   private lazy val lazyEvaluate:Double = {
     //checking for a winner on each move turns out to be too expensive
     /*if( isWinner ) {
@@ -504,7 +501,8 @@ final class BoardState(val board:Seq[Option[Piece]],
           // but become less valuable later in the game when there are
           // few pieces left and we need to push the opponent king into a 
           // corner to checkmate him.
-          distanceFromEdge(to) * ( opponentAllPiecesExKingValue / 1000.0 )
+          math.pow(distanceFromEdge(to),2) * 
+              ( opponentAllPiecesExKingValue / 1000.0 )
         }
       }
 
@@ -558,9 +556,9 @@ final class BoardState(val board:Seq[Option[Piece]],
     }
   }
 
-  private val endGame = allPiecesExKingValue < 8
-  private val opening = allPiecesExKingValue > 35
-  private val midGame = ! endGame && ! opening
+  private lazy val endGame = allPiecesExKingValue < 8
+  private lazy val opening = allPiecesExKingValue > 35
+  private lazy val midGame = ! endGame && ! opening
   
   private[chess] def distanceFromEdge(index:Int):Int = {
     val x = getX(index)
@@ -707,9 +705,12 @@ final class BoardState(val board:Seq[Option[Piece]],
         }
       case x =>
     }
-
-    var newBoard = board.updated(index(x,y),None)
-                   .updated(index(x2,y2),pieceToMove)
+    
+    var newBoard = board.toArray.clone
+    newBoard.update(index(x,y),None)
+    newBoard.update(index(x2,y2),pieceToMove)
+//    var newBoard = board.updated(index(x,y),None)
+//                   .updated(index(x2,y2),pieceToMove)
 
     val newCastlingAbilities = {
       pieceToMove match {
@@ -878,14 +879,14 @@ object BoardState {
 
   private lazy val midBoard = List.fill(16 * 4)(None)
 
-  private lazy val boardList:Seq[Option[Piece]] = 
-        ((backRowWhite) ::: 
-            empty8 ::: 
-        List.fill(8)(Some(Pawn(White))) ::: empty8 :::
-        midBoard :::
-        List.fill(8)(Some(Pawn(Black))) ::: empty8 :::
-        (backRowBlack) ::: 
-            empty8)
+  private lazy val boardList:Array[Option[Piece]] = 
+        ((backRowWhite) ++ 
+            empty8 ++ 
+        List.fill(8)(Some(Pawn(White))) ++ empty8 ++
+        midBoard ++
+        List.fill(8)(Some(Pawn(Black))) ++ empty8 ++
+        (backRowBlack) ++ 
+            empty8).toArray
 
   private val defaultCastlingAbilities = List(
     CastlingAbility(East,White),

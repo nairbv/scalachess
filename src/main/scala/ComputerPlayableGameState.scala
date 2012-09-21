@@ -1,7 +1,11 @@
-package net.brianvaughan.scala.chess
+package net.brianvaughan.scala.ai.games
 
 
 import com.weiglewilczek.slf4s._
+
+/** thrown when an invalid move is attempted */
+class InvalidMoveException(msg:String) extends IllegalArgumentException(msg)
+
 
 trait GameState {
 

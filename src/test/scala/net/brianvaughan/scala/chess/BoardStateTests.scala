@@ -1,4 +1,6 @@
-package net.brianvaughan.scala.chess
+package net.brianvaughan.scala.ai.games.chess
+
+import net.brianvaughan.scala.ai.games._
 
 import org.scalatest._
 import org.scalatest.matchers._
@@ -98,6 +100,9 @@ class ChessSpec extends FlatSpec with ShouldMatchers {
     board.distanceFromEdge(board.index(0,0)) should equal(0)
     board.distanceFromEdge(board.index(0,7)) should equal(0)
     board.distanceFromEdge(board.index(6,6)) should equal(1)
+    board.distanceFromEdge(board.index(7,0)) should equal(0)
+    board.distanceFromEdge(board.index(4,4)) should equal(3)
+
 
   }
 

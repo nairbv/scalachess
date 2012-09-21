@@ -1,4 +1,4 @@
-package net.brianvaughan.scala.chess
+package net.brianvaughan.scala.ai.games
 
 import scala.actors.Futures
 import scala.actors._
@@ -58,7 +58,7 @@ class MiniMaxGamePlayer {
    * previous call.  This allows the algorithm to start by initially searching
    * the game tree of a known good move.
    */
-  private[chess] def miniMaxEvaluate(
+  private[games] def miniMaxEvaluate(
                       actor:Actor,
                       game:ComputerPlayableGameState,
                       depth:Int=1,
@@ -130,7 +130,7 @@ class MiniMaxGamePlayer {
           //tree to choose.
           val actResult =   (actor !! 
                   EvaluationParameters(g,depth-1,-beta,-localalpha))
-
+          Futures.awaitAll(200,actResult)
           while( ! actResult.isSet ) {
             if( actor.getState == Actor.State.Terminated ) {
               logger.debug("actor dead, stop waiting for evaluation of board")
@@ -139,7 +139,7 @@ class MiniMaxGamePlayer {
               //bypassed for a score at a lower depth.
               return ScoredGame(-1234567, g)
             }
-            Futures.awaitAll(100,actResult)
+            Futures.awaitAll(200,actResult)
           }
           actResult() match {
             case ScoredGame(scored,gameResult) => 
@@ -157,13 +157,15 @@ class MiniMaxGamePlayer {
 
               return if ( v >= best ) { 
                 ScoredGame(v,g) 
-              } else { 
+              } else {
+                logger.warn("Is this even possible?")
                 ScoredGame(best,bestGame) 
               }
             }
             best = localBest
-            localalpha = localBest max localalpha
-            if( v >= best ){
+            //localalpha = localBest max localalpha
+            if( v >= localalpha ) { //best ){
+              localalpha = v
               ScoredGame(v,g)
             } else {
               ScoredGame(localBest,bestGame)
@@ -215,8 +217,8 @@ class MiniMaxGamePlayer {
       }
       actResult() match {
         case ScoredGame(score,board)=> 
-              logger.info("found best move for depth: "+
-                          depth+" with score "+score)
+//              logger.info("found best move for depth: "+
+//                          depth+" with score "+score)
               board
         case _=> throw new Exception("bah!")
       }
@@ -299,7 +301,7 @@ class MiniMaxGamePlayer {
 //avoids some of the unsafe type-erasure matching.
 //might want to add another for the tuple2 if there's a way to 
 //make that work.
-private[chess] sealed case class 
+private[games] sealed case class 
            EvaluationParameters(game:ComputerPlayableGameState,
                                 depth:Int,
                                 alpha:Double,
@@ -321,7 +323,7 @@ sealed case class ScoredGame(score:Double,game:ComputerPlayableGameState)
  * analysis can be stopped via a !"Exit" message once the time available 
  * to make a decision has run-out.
  */
-private[chess] class EvaluationActor(player:MiniMaxGamePlayer) extends Actor {
+private[games] class EvaluationActor(player:MiniMaxGamePlayer) extends Actor {
     private val logger = Logger("EvaluationActor")
 
     def act():Unit = {
