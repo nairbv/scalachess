@@ -82,29 +82,8 @@ class MiniMaxGamePlayer {
           return ScoredGame(0.0,game)
         }
       } else {
-      //intialize lazy values in children
-      //in a multi-threaded way.
-      //at one point this was helping performace, but right now is probably
-      //unnecessary.
-/*      val futures = (states.map {
-        case state:ComputerPlayableGameState => 
-          Futures.future {
-            //if we still have depth, we'll need the resulting boardstates
-            //but if this is the last iteration, the count of legal moves
-            //will be enough.
-            if( depth > 1 ) {
-              state.preFetchDeep
-            } else {
-              state.preFetchShallow
-            }
-          }
-      })
-      Futures.awaitAll(100,futures:_*)
-*/
 
-      val sortedStates = states//.map {
-      //  case a => getOrAddTransposition(a)
-     // }
+      val sortedStates = states
       .sortWith{
         (b1,b2)=>
             if( previousDepthBest.equals(Some(b1)) ) {
@@ -143,25 +122,14 @@ class MiniMaxGamePlayer {
           }
           actResult() match {
             case ScoredGame(scored,gameResult) => 
-                val (tmpV,returnedGame)= (scored,gameResult)
-
-            val v = -tmpV
+            val v = -scored //tmpV
             val localBest = v max best
             //short-circuits the minimax to prune tree.
             //is there a more idiomatic way to do this?
-            if( localBest >= beta ) {
- //           println("pruning!")
-              
-              logger.debug("pruning after "+index + "/"+states.size+
-                           " moves analyzed at depth "+depth)
-
-              return if ( v >= best ) { 
-                ScoredGame(v,g) 
-              } else {
-                logger.warn("Is this even possible?")
-                ScoredGame(best,bestGame) 
-              }
+            if( v > beta ) {
+               return ScoredGame(v,g)
             }
+
             best = localBest
             //localalpha = localBest max localalpha
             if( v >= localalpha ) { //best ){
@@ -248,7 +216,8 @@ class MiniMaxGamePlayer {
     } else {
 
       var theBestMove:ComputerPlayableGameState = bestMove(game,currentDepth)
-
+      //how can I make this stop searching after finding a "forced mate" or
+      //otherwise well-defined end-game scenario?
       Stream.from(2).foreach{
         case i => {
           currentDepth = i
