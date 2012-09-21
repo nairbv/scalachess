@@ -13,6 +13,11 @@ player.
 
 UPDATE: later implemented castling and pawn promotion.  Still no en-passant
 
+UPDATE: I made this a bit more generic, and added a connect4 game that can be 
+played by the same minimax AI player.  Sample usage below is a bit out of date
+because the package name for the import has changed.  I might rename this 
+project, so current github URL subject to change.
+
 
 My Requirements:
 ====================================================================
