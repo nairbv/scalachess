@@ -1,0 +1,7 @@
+target/
+project/boot/
+*.jar
+*~
+java.hprof.txt
+gc.log
+*.swp
