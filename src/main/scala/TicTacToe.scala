@@ -123,7 +123,7 @@ object TicTacToeGameState {
     val player = new MiniMaxGamePlayer
     var board:ComputerPlayableGameState = startingBoard
     while( ! board.gameOver ) {
-      board = player.bestMoveIterativeDeepening(board,millis)
+      board = player.bestMoveIterativeDeepening(board,millis,9)
       println(board)
     }
     println("Game Over")

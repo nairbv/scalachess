@@ -91,7 +91,7 @@ class MiniMaxGamePlayer {
             } else if( previousDepthBest.equals(Some(b2)) ) {
               false
             } else {
-              b1.evaluate >= b2.evaluate
+              b1.evaluate > b2.evaluate
             }
       }
 
@@ -205,7 +205,7 @@ class MiniMaxGamePlayer {
    * continuing down an analysis tree that has already been abandoned.
    */
   def bestMoveIterativeDeepening(
-          game:ComputerPlayableGameState,timeout:Long)
+          game:ComputerPlayableGameState,timeout:Long,maxDepth:Int=300)
     :ComputerPlayableGameState = 
   {
     val start = System.currentTimeMillis
@@ -221,6 +221,10 @@ class MiniMaxGamePlayer {
       Stream.from(2).foreach{
         case i => {
           currentDepth = i
+          if( currentDepth > maxDepth ) {
+            logDecisionStats(currentDepth,start)
+            return theBestMove
+          }
           val actor = new EvaluationActor(this)
           val f = Futures.future {
             bestMove(game,currentDepth,actor, Some(theBestMove) )
